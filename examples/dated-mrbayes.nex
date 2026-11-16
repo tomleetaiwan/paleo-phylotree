@@ -1,0 +1,22 @@
+#NEXUS
+[Synthetic CC0 time-branch example, NOT a biological inference.
+ Only the root age is supplied: age_mean=100 Ma before present.
+ Branch lengths are elapsed time in millions of years, not substitutions.
+ Use time branches with the existing age_mean anchor.
+ Expected node ages in preorder: 100, 50, 20, 0, 66, 35, 0 Ma.]
+BEGIN TREES;
+  TRANSLATE
+    1 'Fossil taxon A',
+    2 'Extant taxon B',
+    3 'Fossil taxon C',
+    4 'Extant taxon D';
+  TREE time_branch_example = [&R]
+    ((1[&age_95%HPD={18,22},prob=0.98]:30,
+      2:50)
+      [&age_95%HPD={42,58},prob=0.96]:50,
+     (3:31,
+      4:66)
+      [&age_95%CredInt={60,72},prob=0.92]:34)
+      [&age_mean=100,age_95%HPD={90,110}];
+  TREE undated_example = [&U] ((1:0.1,2:0.2):0.3,(3:0.2,4:0.3):0.2);
+END;

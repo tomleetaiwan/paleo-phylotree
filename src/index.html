@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>PaleoTree — 古生物時間樹</title>
+  <style>/*APP_STYLE*/</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img class="brand-icon" src="/*APP_ICON*/" width="52" height="52" alt="" aria-hidden="true"><div><h1>PaleoTree</h1></div></div>
+    <div class="toolbar">
+      <label class="format-label">格式 <select id="format" aria-label="輸入格式"><option value="auto">自動辨識</option value="nexus">NEXUS / MrBayes</option><option value="newick">Newick</option><option value="nhx">NHX</option><option value="hyphy">HyPhy</option><option value="beast">BEAST 註解樹</option><option value="phyloxml">PhyloXML</option><option value="nexml">NeXML</option></select></label>
+      <button id="open" class="primary">開啟檔案</button><input id="file" type="file" hidden accept=".nex,.nexus,.tre,.tree,.nwk,.newick,.t,.xml,.nexml,.phyloxml,.json,.nhx">
+      <label class="format-label">載入範例 <select id="demo"><option value="">選擇範例…</option><option value="synthetic">虛構定年樹</option><option value="trilobites">三葉蟲共識樹</option></select></label>
+      <button id="save" disabled>儲存專案</button>
+      <button id="help">使用說明</button>
+    </div>
+  </header>
+  <div id="notice" role="status" aria-live="polite">請開啟樹檔，或載入內建範例。</div>
+  <main id="main-layout">
+    <aside id="settings-pane" class="settings">
+      <section><h2><span>資料來源</span></h2>
+        <p id="file-summary" class="muted">尚未開啟檔案</p>
+        <label>樹<select id="tree" disabled><option>尚無樹</option></select></label>
+        <div id="tree-stats" class="stat-grid"></div>
+      </section>
+      <section><h2><span>年代解讀</span><span id="mode-badge" class="badge">一般模式</span></h2>
+        <p class="hint">只顯示既有定年結果。枝長與支持度不等於年代。</p>
+        <p id="source-status" class="hint" role="status">開啟樹後會自動檢查兩種來源；數值相容不代表已證實枝長為時間單位。</p>
+        <details id="source-settings"><summary>進階：年代來源</summary>
+          <label>來源選擇<select id="method" aria-describedby="source-status"><option value="auto">自動判斷（預設）</option><option id="method-nodes" value="nodes">明確節點年代</option><option id="method-branches" value="branches">時間枝長＋既有年代錨點</option></select></label>
+        </details>
+        <label>全樹年代欄位<select id="age-field"><option value="age_mean">age_mean（需輸入資料提供）</option></select></label>
+        <p class="hint">時間單位固定為 Ma（百萬年）。其他單位請先換算為 Ma 再匯入。</p>
+        <fieldset class="zero-age-settings" aria-describedby="zero-age-help">
+          <legend>原始 0 的距今年代（Ma）</legend>
+          <div class="zero-age-modes">
+            <label class="check"><input id="zero-age-single" type="radio" name="zero-age-mode" value="single" checked>單一年代</label>
+            <label class="check"><input id="zero-age-range" type="radio" name="zero-age-mode" value="range">年代區間</label>
+          </div>
+          <div id="zero-age-values">
+            <label><span id="zero-age-first-label">年代（Ma）</span><input id="zero-age" type="number" min="0" max="1000000000000000" step="any" value="0"></label>
+            <label id="zero-age-second-label" hidden>端點 B<input id="zero-age-second" type="number" min="0" max="1000000000000000" step="any" disabled></label>
+          </div>
+          <p id="zero-age-summary" class="hint" role="status">全樹平移值：0 Ma</p>
+          <p id="zero-age-help" class="hint">單一年代直接使用；年代區間須填兩個端點，順序不限，取算術中點平移全樹。已是距今年代請選單一年代並填 0。</p>
+        </fieldset>
+        <p class="hint">按「驗證並顯示 Ma」後，整棵樹與原有 HPD／CredInt 一起加上平移值，不修改枝長或重新定年；不額外推算不確定範圍或繪製區間線。</p>
+        <label>年代備註（選填）<textarea id="evidence" rows="2" maxlength="4000" placeholder="可記錄分析設定或單位來源，不影響繪圖"></textarea></label>
+        <label id="root-status" hidden>輸入樹的根<select id="root-confirmed"><option value="unknown">尚未指定</option><option value="rooted">使用目前的根</option></select><span class="hint">檔案未記錄定根狀態；此選項不會重新定根。</span></label>
+        <div class="button-row"><button id="apply-time" class="primary" disabled>驗證並顯示 Ma</button><button id="general" disabled>一般樹</button></div>
+      </section>
+      <section><details id="style-settings"><summary><h2><span>時間軸與樣式</span></h2></summary>
+        <label>樹根外觀<select id="root-style"><option value="hollow">空心圓</option><option value="solid">實心圓</option></select></label>
+        <label class="check"><input id="root-stem" type="checkbox">顯示裝飾根幹</label>
+        <p class="hint">根幹以虛線表示，僅作裝飾，不代表時間長度。</p>
+        <label>橫軸範圍<select id="time-range"><option value="auto">自動貼合樹的年代</option><option value="manual">手動指定範圍</option></select></label>
+        <p id="range-summary" class="hint">自動模式依全樹最老／最年輕年代保留少量邊界，不強制延伸至 0 Ma；Ma 比例仍為線性。</p>
+        <div class="two-col"><label>較老端 Ma<input id="older" type="number" min="0" placeholder="自動"></label><label>較新端 Ma<input id="younger" type="number" min="0" value="0"></label></div>
+        <label>主刻度間距 Ma（留白為自動）<input id="grid-step" type="number" min="0.000001" list="steps" placeholder="自動"><datalist id="steps"><option>0.1</option><option>0.5</option><option>1</option><option>5</option><option>10</option><option>20</option><option>50</option><option>100</option></datalist></label>
+        <div class="two-col"><label class="check"><input id="grid" type="checkbox" checked>主格線</label><label class="check"><input id="minor-grid" type="checkbox">次格線</label></div>
+        <div class="two-col"><label>格線顏色<input id="grid-color" type="color" value="#d1d5db"></label><label>格線不透明度<input id="grid-opacity" type="number" min="0" max="1" step="0.1" value="0.5"></label></div>
+        <div class="two-col"><label>年代小數位<input id="decimals" type="number" min="0" max="6" step="1" value="2"></label><label>字級 px<input id="font-size" type="number" min="8" max="32" value="13"></label></div>
+        <div class="two-col"><label>枝條顏色<input id="branch-color" type="color" value="#254b48"></label><label>枝條線寬<input id="line-width" type="number" min="0.5" max="6" step="0.5" value="1.5"></label></div>
+        <div class="two-col"><label class="check"><input id="names" type="checkbox" checked>節點名稱</label><label class="check"><input id="ages" type="checkbox" checked>節點年代</label><label class="check"><input id="all-tips" type="checkbox">含 0 Ma 末端</label><label class="check"><input id="support" type="checkbox">支持度</label></div>
+        <label class="check"><input id="simplified" type="checkbox">只保留選取節點年代</label>
+        <p class="hint">依文字與枝線範圍增加子樹區塊間距，父節點保持置中；末端 OTU 無須等距。樹較高時可向下捲動。圖中年代為四捨五入值，精確值見右側。</p>
+      </details>
+      </section>
+    </aside>
+    <div id="resize-settings" class="pane-splitter" role="separator" aria-orientation="vertical" aria-label="調整左側窗格寬度" aria-controls="settings-pane" tabindex="0" title="拖曳調整左側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬"></div>
+    <section id="tree-workspace" class="workspace" aria-label="種系樹工作區">
+      <div class="canvas-toolbar">
+        <div class="search"><input id="search" type="search" placeholder="搜尋分類群或節點 ID" aria-label="搜尋分類群或節點 ID"><button id="find" disabled>定位</button></div>
+        <div class="button-row"><button id="zoom-out" aria-label="縮小" disabled>−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="放大" disabled>＋</button><button id="fit" disabled>適合視窗</button></div>
+        <label class="sort-label">排序<select id="order"><option value="original">原始順序</option><option value="ascending">小群在上</option><option value="descending">大群在上</option></select></label>
+      </div>
+      <div id="canvas" tabindex="0" aria-label="樹畫布，滑鼠拖曳平移，Ctrl 加滾輪縮放">
+        <div id="empty"><p>拖曳樹檔至此，或按「開啟檔案」</p><p class="muted">MrBayes · NEXUS · Newick · NHX · PhyloXML · NeXML</p></div>
+      </div>
+      <footer class="export-bar">
+        <label>匯出範圍<select id="export-scope"><option value="full">全樹</option><option value="viewport">目前視窗</option></select></label>
+        <button id="svg" disabled>SVG</button><label>PNG 倍率<select id="png-scale"><option>1</option><option>2</option><option>3</option></select></label><button id="png" disabled>PNG</button>
+        <button id="csv" disabled>節點年代表 CSV</button><button id="original" disabled>原始檔</button>
+      </footer>
+    </section>
+    <div id="resize-inspector" class="pane-splitter" role="separator" aria-orientation="vertical" aria-label="調整右側窗格寬度" aria-controls="inspector-pane" tabindex="0" title="拖曳調整右側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬"></div>
+    <aside id="inspector-pane" class="inspector">
+      <section><h2>節點資訊</h2><p class="hint">點選節點查看精確值；名稱及原始欄位不作改寫。</p><div id="node-info" class="details muted">尚未選取節點</div><button id="collapse" disabled>折疊／展開此分支</button><button id="expand-all" disabled>展開全部</button></section>
+      <section><h2>匯入與年代診斷</h2><div id="diagnostics" class="diagnostics" aria-live="polite">尚無資料</div></section>
+      <div class="research-note"><strong>研究資料不變</strong><p>排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。</p><span>phylotree.js 2.6.1 · PaleoTree 0.1.0</span></div>
+    </aside>
+  </main>
+  <dialog id="help-dialog"><h2>PaleoTree 使用說明</h2>
+    <ol><li>開啟樹檔或拖曳至畫布，從清單選擇樹。純性狀矩陣不含樹，無法直接繪製。</li><li>選定全樹一致的年代欄位，再按「驗證並顯示 Ma」。時間單位固定為 Ma；其他單位須先換算再匯入。年代備註可留白；只有檔案未記錄定根狀態時，才需指定是否使用目前的根。</li><li>若原始 0 表示最年輕化石而非現在，在「原始 0 對應的距今年代（Ma）」輸入其真實年代。全樹及年代區間會加上此值，枝長與原始資料不變。這是時間原點換算，不是重新定年；原始數值必須已是以 Ma 表示的時間。</li><li>時間枝長模式只使用檔案內既有年代作錨點；不能將替換數枝長改標 Ma。缺漏、未定根或衝突時保留一般模式。</li><li>Ma 為距今百萬年；化石末端不強制對齊 0。點選節點可查看原始精度與 HPD／CredInt。</li><li>滑鼠拖曳平移；Ctrl＋滾輪或上方按鈕縮放；方向鍵平移，＋／−縮放。選取節點後可折疊；搜尋會展開路徑並定位。</li><li>SVG／PNG 包含時間軸與格線。CSV 對可能的試算表公式文字加單引號。專案 JSON 可在下次開啟時還原設定。</li><li>上限：10 MiB、100 棵樹、總節點 200,000、每樹 1,000 tips、樹深度 512；專案 32 MiB。全樹 PNG 另受畫布尺寸限制。</li><li>不重新執行 tip-dating，不執行 NEXUS 指令。不支援未知比例或其他非平移式時間基準轉換。</li></ol>
+    <p>相容性：已以合成資料與提供的三葉蟲共識樹驗證解析及時間原點換算；分析單位與校正值仍需研究者確認。未保證任意 XML 擴充或 NeXML network。P2 地質色帶與區間橫條尚未提供。</p>
+    <p>年代來源預設自動判斷：節點年代完整時優先直接使用，否則嘗試時間枝長與既有錨點；兩者皆不可用時保留一般模式。若需手動指定，展開「進階：年代來源」。自動判斷不代表已驗證時間單位與原點，仍須檢查設定後按「驗證並顯示 Ma」。</p>
+    <button id="close-help" class="primary">關閉說明</button>
+  </dialog>
+  <template id="license-notices"><pre>/*PROJECT_LICENSE*/</pre><pre>/*APP_LICENSES*/</pre></template>
+  <script>/*APP_SCRIPT*/</script>
+</body>
+</html>
