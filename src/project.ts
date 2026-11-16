@@ -1,11 +1,13 @@
-import { APP_VERSION, PHYLOTREE_VERSION } from "./model.ts";
-import type { SourceDocument, TimeOptions, ViewState, Tree, TimeResult } from "./model.ts";
+import { APP_VERSION, PHYLOTREE_VERSION, isTimeMode } from "./model.ts";
+import type { SourceDocument, TimeOptions, ViewState, ViewMode, Tree, TimeResult } from "./model.ts";
 import { parseDocument } from "./parsers.ts";
-import { validZeroAgePair, zeroAgeMean } from "./time.ts";
+import { interpretTime, validZeroAgePair, zeroAgeMean } from "./time.ts";
+
+const PROJECT_SCHEMA_VERSION = 2;
 
 export function defaultView(): ViewState {
   return {
-    mode: "general", rootStyle: "hollow", rootStem: false, grid: true, minorGrid: false, gridColor: "#d1d5db", gridOpacity: 0.5,
+    mode: "topology", rootStyle: "hollow", rootStem: false, grid: true, minorGrid: false, gridColor: "#d1d5db", gridOpacity: 0.5,
     gridStep: null, autoRange: true, older: null, younger: 0, decimals: 2, fontSize: 13, lineWidth: 1.5,
     branchColor: "#254b48", names: true, ages: true, allTips: false, support: false,
     simplified: false, collapsed: [], order: "original", selected: null, zoom: 1, panX: 0, panY: 0
@@ -16,7 +18,7 @@ export function defaultTime(): TimeOptions {
 }
 export function saveProject(doc: SourceDocument, selectedTree: number, options: TimeOptions, view: ViewState): string {
   return JSON.stringify({
-    kind: "paleo-phylotree", schemaVersion: 1, appVersion: APP_VERSION, phylotreeVersion: PHYLOTREE_VERSION,
+    kind: "paleo-phylotree", schemaVersion: PROJECT_SCHEMA_VERSION, appVersion: APP_VERSION, phylotreeVersion: PHYLOTREE_VERSION,
     source: { filename: doc.filename, content: doc.content, format: doc.format },
     selectedTree, nodeIds: doc.trees.map(t => t.nodes.map(n => n.id)), options, view
   }, null, 2);
@@ -33,7 +35,12 @@ export function loadProject(text: string): { doc: SourceDocument; selectedTree: 
   if (new TextEncoder().encode(text).length > 32 * 1024 * 1024) throw new Error("專案超過 32 MiB 限制。");
   let obj: unknown;
   try { obj = JSON.parse(text); } catch { throw new Error("專案 JSON 語法損毀。"); }
-  if (!record(obj) || obj.kind !== "paleo-phylotree" || obj.schemaVersion !== 1) throw new Error("不支援的專案格式或版本。");
+  if (!record(obj) || obj.kind !== "paleo-phylotree" || obj.schemaVersion !== PROJECT_SCHEMA_VERSION) {
+    throw new Error("不支援的專案格式或版本；僅接受三模式專案 schemaVersion 2，請重新匯入原始樹檔。");
+  }
+  if (typeof obj.appVersion !== "string" || !obj.appVersion || typeof obj.phylotreeVersion !== "string" || !obj.phylotreeVersion) {
+    throw new Error("專案應用程式版本資訊無效。");
+  }
   if (!record(obj.source) || typeof obj.source.filename !== "string" || typeof obj.source.content !== "string" || typeof obj.source.format !== "string") {
     throw new Error("專案來源資料無效。");
   }
@@ -41,25 +48,23 @@ export function loadProject(text: string): { doc: SourceDocument; selectedTree: 
   if (!Number.isInteger(obj.selectedTree) || !finite(obj.selectedTree, 0, doc.trees.length - 1)) throw new Error("專案選定樹索引無效。");
   if (JSON.stringify(obj.nodeIds) !== JSON.stringify(doc.trees.map(t => t.nodes.map(n => n.id)))) throw new Error("專案節點 ID 與來源資料不符。");
   const o = obj.options, v = obj.view;
-  if (!record(o) || !["nodes", "branches"].includes(String(o.method)) || typeof o.field !== "string" || o.field.length > 200 ||
-    (o.autoMethod !== undefined && typeof o.autoMethod !== "boolean") ||
-    !["Ma", "ka", "years"].includes(String(o.unit)) || o.origin !== "present" || typeof o.evidence !== "string" || o.evidence.length > 4000 ||
+  if (!record(o) || (o.method !== "nodes" && o.method !== "branches") || typeof o.field !== "string" || o.field.length > 200 ||
+    typeof o.autoMethod !== "boolean" ||
+    o.origin !== "present" || typeof o.evidence !== "string" || o.evidence.length > 4000 ||
     typeof o.rootedConfirmed !== "boolean" ||
-    (o.zeroAgeMa !== undefined && !finite(o.zeroAgeMa, 0, 1e15))) throw new Error("專案年代設定無效。");
-  if (o.unit !== "Ma") throw new Error("此版本固定使用 Ma；此專案使用 ka 或 years，請先將原始年代與時間枝長換算為 Ma，再以樹檔重新匯入，不可只修改單位標籤。");
-  if (o.zeroAgeRangeMa !== undefined && o.zeroAgeRangeMa !== null) {
-    throw new Error("此版本僅支援固定原點年代（可由兩數中點取得），不支援舊版不確定性範圍專案；請重新匯入原始樹檔，再輸入單一 Ma 值或兩個數值取中點。");
+    !finite(o.zeroAgeMa, 0, 1e15)) throw new Error("專案年代設定無效。");
+  if (o.unit !== "Ma") throw new Error("專案時間單位固定使用 Ma；請先換算原始年代與時間枝長，再重新匯入樹檔。");
+  if (o.zeroAgePairMa !== null && !validZeroAgePair(o.zeroAgePairMa)) {
+    throw new Error("專案中 0 所代表年代的兩個端點無效，須介於 0–10^15 Ma，順序不限。");
   }
-  if (o.zeroAgePairMa !== undefined && o.zeroAgePairMa !== null && !validZeroAgePair(o.zeroAgePairMa)) {
-    throw new Error("專案原點的兩個數值無效，須介於 0–10^15 Ma，不限輸入順序。");
-  }
-  const pair = validZeroAgePair(o.zeroAgePairMa) ? o.zeroAgePairMa : null;
+  const pair = o.zeroAgePairMa;
+  if (pair !== null && o.zeroAgeMa !== zeroAgeMean(pair)) throw new Error("專案中 0 所代表的年代與所填範圍中點不一致。");
   const ids = new Set(doc.trees[obj.selectedTree].nodes.map(n => n.id));
-  if (!record(v) || !["general", "time"].includes(String(v.mode)) ||
-    (v.rootStyle !== undefined && v.rootStyle !== "hollow" && v.rootStyle !== "solid") ||
-    (v.rootStem !== undefined && typeof v.rootStem !== "boolean") ||
-    (v.autoRange !== undefined && typeof v.autoRange !== "boolean") ||
-    !["original", "ascending", "descending"].includes(String(v.order)) ||
+  if (!record(v) || (v.mode !== "topology" && v.mode !== "nodes" && v.mode !== "branches") ||
+    (v.rootStyle !== "hollow" && v.rootStyle !== "solid") ||
+    typeof v.rootStem !== "boolean" ||
+    typeof v.autoRange !== "boolean" ||
+    (v.order !== "original" && v.order !== "ascending" && v.order !== "descending") ||
     !["grid", "minorGrid", "names", "ages", "allTips", "support", "simplified"].every(k => typeof v[k] === "boolean") ||
     !color(v.gridColor) || !color(v.branchColor) || !finite(v.gridOpacity, 0, 1) ||
     (v.gridStep !== null && !finite(v.gridStep, Number.MIN_VALUE, 1e15)) ||
@@ -72,19 +77,26 @@ export function loadProject(text: string): { doc: SourceDocument; selectedTree: 
   }
   // Reconstruct from validated fields; never merge arbitrary imported object keys.
   const options: TimeOptions = {
-    autoMethod: o.autoMethod === true,
-    method: o.method === "branches" ? "branches" : "nodes", field: o.field, unit: "Ma",
-    origin: "present", zeroAgeMa: pair ? zeroAgeMean(pair) : o.zeroAgeMa === undefined ? 0 : o.zeroAgeMa,
+    autoMethod: o.autoMethod,
+    method: o.method, field: o.field, unit: "Ma",
+    origin: "present", zeroAgeMa: o.zeroAgeMa,
     zeroAgePairMa: pair,
     evidence: o.evidence, rootedConfirmed: o.rootedConfirmed
   };
+  if ((v.mode === "nodes" || v.mode === "branches") && v.mode !== options.method) {
+    throw new Error("專案繪圖模式與年代來源不一致。");
+  }
+  if (isTimeMode(v.mode)) {
+    const result = interpretTime(doc.trees[obj.selectedTree], options);
+    if (!result.valid) throw new Error(`專案時間模式的年代檢核未通過：${result.errors[0]}`);
+  }
   const view: ViewState = {
-    rootStyle: v.rootStyle === "solid" ? "solid" : "hollow",
-    rootStem: v.rootStem === true,
-    mode: v.mode === "time" ? "time" : "general", order: v.order === "ascending" ? "ascending" : v.order === "descending" ? "descending" : "original",
+    rootStyle: v.rootStyle,
+    rootStem: v.rootStem,
+    mode: v.mode, order: v.order,
     grid: v.grid === true, minorGrid: v.minorGrid === true, names: v.names === true, ages: v.ages === true, allTips: v.allTips === true,
     support: v.support === true, simplified: v.simplified === true, gridColor: v.gridColor, branchColor: v.branchColor,
-    gridOpacity: v.gridOpacity, gridStep: v.gridStep, autoRange: v.autoRange === true, older: v.older, younger: v.younger, decimals: v.decimals,
+    gridOpacity: v.gridOpacity, gridStep: v.gridStep, autoRange: v.autoRange, older: v.older, younger: v.younger, decimals: v.decimals,
     fontSize: v.fontSize, lineWidth: v.lineWidth, zoom: v.zoom, panX: v.panX, panY: v.panY,
     selected: typeof v.selected === "string" ? v.selected : null,
     collapsed: v.collapsed.filter((id): id is string => typeof id === "string")
@@ -97,15 +109,20 @@ function cell(value: unknown): string {
   if (/^[\s]*[=+\-@\t\r]/.test(text)) text = "'" + text;
   return `"${text.replaceAll('"', '""')}"`;
 }
-export function nodeCSV(tree: Tree, result: TimeResult, opts: TimeOptions): string {
+export function nodeCSV(tree: Tree, result: TimeResult, opts: TimeOptions, mode: ViewMode): string {
+  const time = isTimeMode(mode);
+  if (!time && mode !== "topology") throw new Error("CSV 繪圖模式無效。");
+  if (time && (!result.valid || opts.method !== mode)) throw new Error("CSV 時間模式須與有效的年代來源一致，請重新套用對應的時間模式。");
   const zeroAgeMa = opts.zeroAgePairMa ? zeroAgeMean(opts.zeroAgePairMa) : opts.zeroAgeMa;
-  const headers = ["tree_id", "tree_name", "node_id", "parent_id", "name", "is_tip", "raw_age_key", "raw_age_value", "raw_unit",
+  const headers = ["tree_id", "tree_name", "mode", "node_id", "parent_id", "name", "is_tip", "raw_age_key", "raw_age_value", "raw_unit",
     "plot_age_Ma", "source", "intervals", "support", "branch_length", "origin", "zero_age_Ma", "evidence", "warnings", "raw_annotations", "zero_age_pair_Ma"];
   const rows = tree.nodes.map(n => [
-    tree.id, tree.name, n.id, n.parentId, n.name, !n.children.length, opts.field, n.annotations[opts.field], opts.unit,
-    result.valid ? result.ages[n.id] : null, result.valid ? result.sources[n.id] : "time-mode-invalid",
-    result.valid ? result.intervals[n.id] : null, n.support, n.length, opts.origin, zeroAgeMa, opts.evidence,
-    [...result.errors, ...result.warnings].join(" | "), n.annotations, opts.zeroAgePairMa
+    tree.id, tree.name, mode, n.id, n.parentId, n.name, !n.children.length,
+    time ? opts.field : null, time ? n.annotations[opts.field] : null, time ? opts.unit : null,
+    time ? result.ages[n.id] : null, time ? result.sources[n.id] : null,
+    time ? result.intervals[n.id] : null, n.support, n.length,
+    time ? opts.origin : null, time ? zeroAgeMa : null, time ? opts.evidence : null,
+    [...tree.warnings, ...(time ? result.warnings : [])].join(" | "), n.annotations, time ? opts.zeroAgePairMa : null
   ]);
   return "\uFEFF" + [headers, ...rows].map(row => row.map(cell).join(",")).join("\r\n");
 }

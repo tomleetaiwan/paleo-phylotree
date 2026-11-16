@@ -56,7 +56,7 @@ test("time branches use an existing anchor and ignore root stem", () => {
 });
 
 test("bundled time-branch example derives ages from its sole root anchor", () => {
-  const content = readFileSync(new URL("../examples/dated-mrbayes.nex", import.meta.url), "utf8");
+  const content = readFileSync(new URL("../examples/synthetic-time-branches.nex", import.meta.url), "utf8");
   const tree = parseDocument(content).trees[0];
   assert.deepEqual(tree.nodes.filter(n => n.annotations.age_mean !== undefined).map(n => n.id), [tree.rootId]);
   assert.equal(interpretTime(tree, options).valid, false);
@@ -128,8 +128,8 @@ test("unit conversions preserve numeric precision and interval types", () => {
 });
 
 test("fossil zero shifts supplied MrBayes ages and intervals, not input or branch lengths", () => {
-  const content = readFileSync(new URL("../examples/trilobites-tip-date.nex.con.tre", import.meta.url), "utf8");
-  const doc = parseDocument(content, "trilobites-tip-date.nex.con.tre");
+  const content = readFileSync(new URL("../examples/trilobites-node-ages.nex", import.meta.url), "utf8");
+  const doc = parseDocument(content, "trilobites-node-ages.nex");
   const tree = doc.trees[0], original = JSON.stringify(tree);
   const base = interpretTime(tree, options);
   const shiftedOptions = { ...options, zeroAgeMa: 380 };
@@ -146,12 +146,12 @@ test("fossil zero shifts supplied MrBayes ages and intervals, not input or branc
     }
   }
   assert.equal(JSON.stringify(tree), original);
-  const view = { ...defaultView(), mode: "time" };
+  const view = { ...defaultView(), mode: "nodes" };
   const restored = loadProject(saveProject(doc, 0, shiftedOptions, view));
   assert.equal(restored.options.zeroAgeMa, 380);
   assert.equal(interpretTime(restored.doc.trees[0], restored.options).ages[phacops.id], 380);
   assert.equal(restored.doc.content, content);
-  const csv = nodeCSV(tree, shifted, shiftedOptions);
+  const csv = nodeCSV(tree, shifted, shiftedOptions, "nodes");
   assert.match(csv, /zero_age_Ma/);
   assert.match(csv, /zero=380 Ma/);
 });
@@ -159,7 +159,7 @@ test("fossil zero shifts supplied MrBayes ages and intervals, not input or branc
 test("two origin values shift the whole tree by their arithmetic midpoint regardless of input order", () => {
   const doc = parseDocument("[&R](A:50,B:100)[&age_mean=100,age_95%HPD={90,110}];");
   const tree = doc.trees[0], original = JSON.stringify(tree);
-  const opts = { ...options, method: "branches", zeroAgePairMa: [385, 398] };
+  const opts = { ...options, method: "branches", zeroAgeMa: 391.5, zeroAgePairMa: [385, 398] };
   const shifted = interpretTime(tree, opts);
   assert.equal(shifted.valid, true);
   assert.deepEqual(tree.nodes.map(n => shifted.ages[n.id]), [491.5, 441.5, 391.5]);
@@ -173,13 +173,13 @@ test("two origin values shift the whole tree by their arithmetic midpoint regard
   assert.equal(restored.options.zeroAgeMa, 391.5);
   assert.deepEqual(restored.options.zeroAgePairMa, [385, 398]);
   assert.deepEqual(interpretTime(restored.doc.trees[0], restored.options).ages, shifted.ages);
-  const csv = nodeCSV(tree, shifted, opts);
+  const csv = nodeCSV(tree, shifted, opts, "branches");
   assert.match(csv, /zero_age_pair_Ma/);
   assert.match(csv, /391\.5/);
   assert.doesNotMatch(csv, /envelopes|origin_only_range/);
   for (const pair of [[], [385], [385, 398, 400], ["385", 398], [-1, 398], [NaN, 398], [Infinity, 398], [1e16, 398]]) {
     assert.equal(interpretTime(tree, { ...opts, zeroAgePairMa: pair }).valid, false);
-    assert.throws(() => loadProject(saveProject(doc, 0, { ...opts, zeroAgePairMa: pair }, defaultView())), /兩個數值無效/);
+    assert.throws(() => loadProject(saveProject(doc, 0, { ...opts, zeroAgePairMa: pair }, defaultView())), /兩個端點無效/);
   }
 });
 
@@ -259,28 +259,23 @@ test("project round trip validates versions, settings and stable IDs", () => {
   assert.deepEqual(loaded.doc.trees, doc.trees);
   assert.deepEqual(loaded.options, options);
   assert.deepEqual(loaded.view, view);
-  const legacy = JSON.parse(saved);
-  legacy.options.confirmed = false;
-  delete legacy.options.autoMethod;
-  delete legacy.options.zeroAgeMa;
-  delete legacy.options.zeroAgePairMa;
-  delete legacy.view.autoRange;
-  delete legacy.view.rootStyle;
-  delete legacy.view.rootStem;
-  assert.equal(loadProject(JSON.stringify(legacy)).options.zeroAgeMa, 0);
-  assert.equal(loadProject(JSON.stringify(legacy)).view.autoRange, false);
-  assert.equal(loadProject(JSON.stringify(legacy)).view.rootStyle, "hollow");
-  assert.equal(loadProject(JSON.stringify(legacy)).view.rootStem, false);
+  for (const [section, keys] of [
+    ["options", ["autoMethod", "zeroAgeMa", "zeroAgePairMa"]],
+    ["view", ["autoRange", "rootStyle", "rootStem"]]
+  ]) {
+    for (const key of keys) {
+      const incomplete = JSON.parse(saved);
+      delete incomplete[section][key];
+      assert.throws(() => loadProject(JSON.stringify(incomplete)), /無效/);
+    }
+  }
   assert.equal(loadProject(saveProject(doc, 0, options, { ...view, rootStem: true })).view.rootStem, true);
   assert.equal(loadProject(saveProject(doc, 0, options, { ...view, rootStyle: "hollow" })).view.rootStyle, "hollow");
-  assert.deepEqual(loadProject(JSON.stringify(legacy)).options, options);
   const automatic = loadProject(saveProject(doc, 0, { ...options, autoMethod: true }, view));
   assert.equal(automatic.options.autoMethod, true);
-  const ranged = JSON.parse(saved);
-  ranged.options.zeroAgeRangeMa = [385, 398];
-  assert.throws(() => loadProject(JSON.stringify(ranged)), /僅支援固定原點年代/);
-  ranged.options.zeroAgeRangeMa = null;
-  assert.deepEqual(loadProject(JSON.stringify(ranged)).options, options);
+  const inconsistent = JSON.parse(saved);
+  inconsistent.options.zeroAgePairMa = [385, 398];
+  assert.throws(() => loadProject(JSON.stringify(inconsistent)), /中點不一致/);
   for (const unit of ["ka", "years"]) {
     const nonMa = JSON.parse(saved);
     nonMa.options.unit = unit;
@@ -307,16 +302,75 @@ test("project round trip validates versions, settings and stable IDs", () => {
     assert.throws(() => loadProject(JSON.stringify(invalid)), /年代設定/);
   }
   const bad = JSON.parse(saved);
-  bad.schemaVersion = 2;
-  assert.throws(() => loadProject(JSON.stringify(bad)), /版本/);
   bad.schemaVersion = 1;
+  assert.throws(() => loadProject(JSON.stringify(bad)), /版本/);
+  bad.schemaVersion = 2;
   bad.view.fontSize = -100;
   assert.throws(() => loadProject(JSON.stringify(bad)), /設定/);
 });
 
+test("three view modes round trip and reject unsupported or inconsistent time modes", () => {
+  const doc = parseDocument(nexus, "modes.nex");
+  for (const mode of ["topology", "nodes", "branches"]) {
+    const opts = { ...options, method: mode === "branches" ? "branches" : "nodes" };
+    const saved = saveProject(doc, 0, opts, { ...defaultView(), mode });
+    const restored = loadProject(saved);
+    assert.equal(restored.view.mode, mode);
+    assert.equal(restored.options.method, opts.method);
+    assert.equal(restored.doc.content, nexus);
+  }
+  const invalid = JSON.parse(saveProject(doc, 0, options, defaultView()));
+  invalid.view.mode = "branches";
+  assert.throws(() => loadProject(JSON.stringify(invalid)), /模式與年代來源不一致/);
+  for (const mode of ["general", "time", "unknown"]) {
+    invalid.view.mode = mode;
+    assert.throws(() => loadProject(JSON.stringify(invalid)), /圖形設定無效/);
+  }
+  invalid.view.mode = "nodes";
+  invalid.options.field = "missing_age";
+  assert.throws(() => loadProject(JSON.stringify(invalid)), /時間模式的年代檢核未通過/);
+});
+
+test("CSV uses shared mode columns and never exports ages for a topology view", () => {
+  const tree = parseDocument("[&R](A[&age_mean=20]:80,B[&age_mean=0]:100)[&age_mean=100];").trees[0];
+  let sharedHeaders;
+  for (const mode of ["nodes", "branches", "topology"]) {
+    const opts = { ...options, method: mode === "branches" ? "branches" : "nodes" };
+    const result = interpretTime(tree, opts);
+    const csv = nodeCSV(tree, result, opts, mode);
+    const [headers, ...rows] = csv.slice(1).split("\r\n").map(line =>
+      [...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(match => match[1].replaceAll('""', '"')));
+    sharedHeaders ??= headers;
+    assert.deepEqual(headers, sharedHeaders);
+    assert.equal(rows.length, tree.nodes.length);
+    for (const row of rows) {
+      assert.equal(row.length, headers.length);
+      const record = Object.fromEntries(headers.map((key, i) => [key, row[i]]));
+      assert.equal(record.mode, mode);
+      assert.equal(record.parent_id, tree.nodes.find(n => n.id === record.node_id).parentId ?? "");
+      if (mode === "topology") {
+        for (const key of ["raw_age_key", "raw_age_value", "raw_unit", "plot_age_Ma", "source", "intervals", "origin", "zero_age_Ma", "zero_age_pair_Ma", "evidence"]) {
+          assert.equal(record[key], "");
+        }
+        assert.ok(Object.hasOwn(JSON.parse(record.raw_annotations), "age_mean"));
+      } else {
+        assert.equal(Number(record.plot_age_Ma), result.ages[record.node_id]);
+        assert.equal(record.raw_unit, "Ma");
+        assert.ok(record.source.startsWith("explicit:"));
+      }
+      if (record.name === "A") assert.equal(record.branch_length, "80");
+    }
+    if (mode !== "topology") {
+      assert.throws(() => nodeCSV(tree, { ...result, valid: false }, opts, mode), /有效的年代來源/);
+    }
+  }
+  const result = interpretTime(tree, options);
+  assert.throws(() => nodeCSV(tree, result, options, "branches"), /有效的年代來源/);
+});
+
 test("CSV preserves provenance and protects spreadsheet formulas", () => {
   const doc = parseDocument("[&R]('=2+2'[&age_mean=0],B[&age_mean=20])[&age_mean=100];", "input.tre");
-  const csv = nodeCSV(doc.trees[0], interpretTime(doc.trees[0], options), options);
+  const csv = nodeCSV(doc.trees[0], interpretTime(doc.trees[0], options), options, "nodes");
   assert.match(csv, /'=2\+2/);
   assert.match(csv, /Analysis uses Ma/);
   assert.match(csv, /age_mean/);

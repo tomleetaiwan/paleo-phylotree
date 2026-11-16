@@ -195,7 +195,7 @@ function finishTree(tree: Tree): Tree {
     if (names.has(n.name)) duplicates.add(n.name);
     names.add(n.name);
   }
-  if (tips > LIMITS.tips) throw new ImportError("單樹超過 1,000 tips");
+  if (tips > LIMITS.tips) throw new ImportError("單棵樹超過 1,000 個末端 OTU");
   if (duplicates.size) tree.warnings.push(`重複末端名稱（以 ID 區分）：${[...duplicates].slice(0, 10).join("、")}`);
   return tree;
 }

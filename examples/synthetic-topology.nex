@@ -1,0 +1,13 @@
+#NEXUS
+[Synthetic cladogram for demonstration only, NOT a biological inference.
+ All taxa and relationships are fictional.
+ Support values (prob) are fictional numbers for display only, not analysis results.
+ No node ages, time anchors, or branch lengths are supplied.
+ The rooted topology expresses relationships only, not elapsed time.]
+BEGIN TREES;
+  TREE fictional_cladogram = [&R]
+    (('Fictional taxon A','Fictional taxon B')[&prob=0.96],
+     ('Fictional taxon C',
+      ('Fictional taxon D',
+       ('Fictional taxon E','Fictional taxon F')[&prob=0.99])[&prob=0.88])[&prob=0.9]);
+END;

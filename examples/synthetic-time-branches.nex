@@ -1,9 +1,11 @@
 #NEXUS
 [Synthetic CC0 time-branch example, NOT a biological inference.
- Only the root age is supplied: age_mean=100 Ma before present.
+ For time_branch_example, only the root age is supplied: age_mean=100 Ma before present.
  Branch lengths are elapsed time in millions of years, not substitutions.
  Use time branches with the existing age_mean anchor.
- Expected node ages in preorder: 100, 50, 20, 0, 66, 35, 0 Ma.]
+ Expected node ages in preorder: 100, 50, 20, 0, 66, 35, 0 Ma.
+ These time-unit statements apply only to time_branch_example.
+ undated_example is unrooted and has branch lengths with no specified unit.]
 BEGIN TREES;
   TRANSLATE
     1 'Fossil taxon A',

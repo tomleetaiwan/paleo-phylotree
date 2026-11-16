@@ -48,8 +48,25 @@ export interface TimeResult {
   errors: string[];
   warnings: string[];
 }
+export type ViewMode = TimeOptions["method"] | "topology";
+export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
+  nodes: "節點年代模式（Node ages, Ma）",
+  branches: "時間枝長模式（Time branches, Ma）",
+  topology: "拓樸模式（Topology）"
+};
+export const TIME_SOURCE_LABELS: Record<TimeOptions["method"], string> = {
+  nodes: "明確節點年代",
+  branches: "時間枝長＋既有年代錨點"
+};
+export function isTimeMode(mode: ViewMode): mode is TimeOptions["method"] {
+  return mode === "nodes" || mode === "branches";
+}
+export function hasCompleteBranchLengths(tree: Tree): boolean {
+  return tree.nodes.every(n => !n.parentId || n.length !== null) &&
+    tree.nodes.some(n => n.parentId && (n.length ?? 0) > 0);
+}
 export interface ViewState {
-  mode: "general" | "time";
+  mode: ViewMode;
   rootStyle: "hollow" | "solid";
   rootStem: boolean;
   grid: boolean;

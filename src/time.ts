@@ -22,15 +22,15 @@ export function resolveTimeSource(tree: Tree, options: TimeOptions): { options: 
 export function interpretTime(tree: Tree, opts: TimeOptions): TimeResult {
   const result: TimeResult = { valid: false, ages: {}, sources: {}, intervals: {}, errors: [], warnings: [] };
   const error = (text: string) => { if (result.errors.length < 50) result.errors.push(text); };
-  if (opts.origin !== "present" || !unitFactor(opts.unit)) error("不支援的時間原點或單位。");
+  if (opts.origin !== "present" || !unitFactor(opts.unit)) error("不支援的年代基準或單位。");
   if (!Number.isFinite(opts.zeroAgeMa) || opts.zeroAgeMa < 0 || opts.zeroAgeMa > 1e15) {
-    error("原始 0 對應的距今年代須為 0–10^15 Ma 的有限數值。");
+    error("檔案中 0 對應的距今年代須為 0–10^15 Ma 的有限數值。");
   }
   const pair = opts.zeroAgePairMa ?? null;
-  if (pair !== null && !validZeroAgePair(pair)) error("原點的兩個數值須為 0–10^15 Ma 的有限數值，不限輸入順序。");
+  if (pair !== null && !validZeroAgePair(pair)) error("檔案中 0 所代表年代的兩個端點須為 0–10^15 Ma 的有限數值，順序不限。");
   const offset = validZeroAgePair(pair) ? zeroAgeMean(pair) : opts.zeroAgeMa;
-  if (tree.rooted === false) error("檔案明確標記為未定根，無法啟用時間模式。");
-  else if (tree.rooted === null && !opts.rootedConfirmed) error("檔案未記錄定根狀態，請在「輸入樹的根」選擇「使用目前的根」後再顯示 Ma。");
+  if (tree.rooted === false) error("檔案明確標記為未定根，無法切換至時間模式。");
+  else if (tree.rooted === null && !opts.rootedConfirmed) error("檔案未記錄定根狀態，請在「輸入樹的根」選擇「使用目前的根」，再按目標模式按鈕。");
   const factor = unitFactor(opts.unit);
   if (!factor) return result;
   const byId = new Map(tree.nodes.map(n => [n.id, n]));
@@ -86,7 +86,7 @@ export function interpretTime(tree: Tree, opts: TimeOptions): TimeResult {
       if (parent !== undefined && age - parent > tolerance(age, parent)) error(`${node.id}：子節點 ${age} Ma 比父節點 ${parent} Ma 更老。`);
     }
   }
-  if (missing) error(`所選欄位 ${opts.field} 有 ${missing}/${tree.nodes.length} 個節點無法定位；不以零值補齊。`);
+  if (missing) error(`所選欄位 ${opts.field} 有 ${missing}/${tree.nodes.length} 個節點無可用年代；不以 0 補齊。`);
   // Validate relative ages first: an offset must not conceal invalid negative ages
   // or inconsistent time branches. Shift absolute points, never durations.
   if (!result.errors.length && (offset !== 0 || pair !== null)) {
