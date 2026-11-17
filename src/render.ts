@@ -1,16 +1,13 @@
+import { t } from "./i18n.ts";
 import { phylotree } from "phylotree";
 import type { PhylotreeNode } from "phylotree";
 import type { Tree, TreeNode, ViewState, TimeResult, ViewMode } from "./model.ts";
-import { hasCompleteBranchLengths, isTimeMode } from "./model.ts";
+import { isTimeMode, VIEW_MODE_LABELS } from "./model.ts";
 import { ageX, makeTicks, treeAgeRange } from "./time.ts";
 
 const NS = "http://www.w3.org/2000/svg";
 export const TIME_AXIS_TITLE = "Age (Ma)";
-export const DIAGRAM_MODE_LABELS: Record<ViewMode, string> = {
-  nodes: "Node ages (Ma)",
-  branches: "Time branches (Ma)",
-  topology: "Topology"
-};
+export const DIAGRAM_MODE_LABELS: Record<ViewMode, string> = VIEW_MODE_LABELS;
 export function svgElement<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}, text?: string): SVGElementTagNameMap[K] {
   const el = document.createElementNS(NS, tag);
   for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, String(value));
@@ -42,6 +39,8 @@ export interface Diagram {
   plotLeft: number;
   plotWidth: number;
   ticks: number[];
+  axisTitle: string;
+  scaleMaximum: number;
 }
 
 export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width: number, select: (id: string) => void): Diagram {
@@ -57,7 +56,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   };
   const model = new phylotree(project(tree.rootId));
   const idOf = (n: PhylotreeNode): string => {
-    if (typeof n.data.id !== "string") throw new Error("phylotree 階層遺失節點 ID。");
+    if (typeof n.data.id !== "string") throw new Error(t("phylotree 階層遺失節點 ID。"));
     return n.data.id;
   };
   const sizes = new Map<string, number>();
@@ -77,13 +76,13 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   const { older, younger } = range;
   let ticks = time ? makeTicks(older, younger, view.gridStep) : [];
   const measurement = document.createElement("canvas").getContext("2d");
-  if (!measurement) throw new Error("無法量測節點標籤，請使用支援 Canvas 的瀏覽器。");
-  const axisTitle = TIME_AXIS_TITLE;
+  if (!measurement) throw new Error(t("無法量測節點標籤，請使用支援 Canvas 的瀏覽器。"));
+  const axisTitle = time ? TIME_AXIS_TITLE : view.mode === "relative" ? "Relative time" : view.mode === "phylogram" ? "Branch length" : "Equal steps";
   measurement.font = "12px sans-serif";
   const titleWidth = measurement.measureText(axisTitle).width;
   measurement.font = "11px sans-serif";
   const tickHalfWidth = ticks.reduce((max, tick) => Math.max(max, measurement.measureText(String(tick)).width / 2), 0);
-  const plotLeft = time ? Math.ceil(16 + titleWidth + 16 + tickHalfWidth) : 65;
+  const plotLeft = Math.ceil(16 + titleWidth + 16 + tickHalfWidth);
   const labelWidth = view.names ? Math.min(500, tree.nodes.reduce((max, n) => Math.max(max, Math.min(n.name.length, 100) * view.fontSize * 0.65 + 40), 180)) : 50;
   width = Math.max(900, width, plotLeft + labelWidth + 250);
   const plotWidth = width - plotLeft - labelWidth;
@@ -94,27 +93,27 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     return gap < required;
   });
   while (tickOverlaps()) {
-    if (view.gridStep !== null) throw new Error("主刻度文字過密，請增加主刻度間距或留白使用自動刻度。");
+    if (view.gridStep !== null) throw new Error(t("主刻度文字過密，請增加主刻度間距或留白使用自動刻度。"));
     ticks = makeTicks(older, younger, (ticks[0] - ticks[1]) * 2);
   }
   const points = new Map<string, DrawNode>();
   const childRows = new Map<string, DrawNode[]>();
   const rows: DrawNode[] = [];
-  const rawScale = hasCompleteBranchLengths(tree);
+  const rawScale = view.mode === "phylogram" || view.mode === "relative";
   const distances = new Map<string, number>();
   model.nodes.eachBefore(n => {
     const source = byId.get(idOf(n))!;
-    distances.set(source.id, n.parent ? distances.get(idOf(n.parent))! + (rawScale ? source.length! : 1) : 0);
+    distances.set(source.id, n.parent ? distances.get(idOf(n.parent))! + (rawScale ? source.length ?? 0 : 1) : 0);
   });
   const maxDistance = [...distances.values()].reduce((max, d) => Math.max(max, d), 0);
-  if (!Number.isFinite(maxDistance)) throw new Error("累計枝長超出數值範圍，無法正確繪圖。");
+  if (!Number.isFinite(maxDistance)) throw new Error(t("累計枝長超出數值範圍，無法正確繪圖。"));
   const rowHeight = Math.max(34, view.fontSize * 3);
   const walk = (n: PhylotreeNode): DrawNode => {
     const id = idOf(n), source = byId.get(id)!, isCollapsed = !!n.children?.length && collapsed.has(id);
-    const distance = !rawScale && !source.children.length ? maxDistance : distances.get(id)!;
+    const distance = distances.get(id)!;
     const p: DrawNode = {
       source, collapsed: isCollapsed, y: 0,
-      x: time ? ageX(result.ages[id], older, younger, plotLeft, plotWidth) : plotLeft + distance / maxDistance * plotWidth
+      x: time ? ageX(result.ages[id] ?? younger, older, younger, plotLeft, plotWidth) : plotLeft + distance / (maxDistance || 1) * plotWidth
     };
     points.set(id, p); rows.push(p);
     if (n.children?.length && !isCollapsed) {
@@ -134,7 +133,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     };
   };
   const nodeLabels = new Map<string, NodeLabel[]>();
-  const visible = rows.filter(p => !time || (result.ages[p.source.id] <= older && result.ages[p.source.id] >= younger));
+  const visible = rows.filter(p => !time || result.ages[p.source.id] === undefined || (result.ages[p.source.id] <= older && result.ages[p.source.id] >= younger));
   for (const p of visible) {
     const n = p.source, chosen = view.selected === n.id, labels: NodeLabel[] = [];
     let lower = 10;
@@ -147,8 +146,9 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
       lower = Math.max(lower, baseline + metrics.descent);
     }
     if (time && view.ages && (!simplified || chosen) && (n.children.length || view.allTips || result.ages[n.id] !== 0 || chosen)) {
-      const rounded = Number(result.ages[n.id].toFixed(view.decimals));
-      const text = `${Object.is(rounded, -0) ? 0 : rounded} Ma`, size = Math.max(10, view.fontSize - 1);
+      const age = result.ages[n.id];
+      const rounded = age === undefined ? undefined : Number(age.toFixed(view.decimals));
+      const text = rounded === undefined ? "Age unknown" : `${Object.is(rounded, -0) ? 0 : rounded} Ma`, size = Math.max(10, view.fontSize - 1);
       const metrics = measure(text, size);
       labels.push({ text, x: ageStart, baseline, size, color: "#a34a28", kind: "age" });
       lower = Math.max(lower, baseline + metrics.descent + 1.5);
@@ -266,7 +266,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   };
   place(packed, 85 - packed.minY);
   let bottom = 85 - packed.minY + packed.maxY;
-  if (!time && !rawScale) {
+  if (!time) {
     const tips = rows.filter(p => !childRows.has(p.source.id));
     const spacing = tips.reduce((gap, p, i) => i ? Math.max(gap, p.y - tips[i - 1].y) : gap, rowHeight);
     tips.forEach((p, i) => { p.y = 95 + i * spacing; });
@@ -285,13 +285,13 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   width = Math.max(width, packed.maxX + 20);
   const height = Math.max(540, bottom + 80);
   const svg = svgElement("svg", { xmlns: NS, width, height, viewBox: `0 0 ${width} ${height}`, role: "img",
-    "data-mode": time ? view.mode : "topology", "aria-label": DIAGRAM_MODE_LABELS[time ? view.mode : "topology"] });
+    "data-mode": view.mode, "aria-label": DIAGRAM_MODE_LABELS[view.mode] });
   svg.append(svgElement("rect", { width, height, fill: "#ffffff" }));
-  svg.append(svgElement("title", {}, `${tree.name} — ${time ? axisTitle : rawScale ? "Original branch lengths" : "Topology"}`));
+  svg.append(svgElement("title", {}, `${tree.name} — ${VIEW_MODE_LABELS[view.mode]} — ${axisTitle}`));
   svg.append(svgElement("text", { x: plotLeft, y: 24, fill: "#203f3c", "font-size": 14, "font-family": "sans-serif" }, tree.name));
-  if (time) svg.append(svgElement("text", {
+  svg.append(svgElement("text", {
     x: 16, y: 68, fill: "#526966", "font-size": 12, "font-family": "sans-serif",
-    "data-axis-title": "time"
+    "data-axis-title": time ? "time" : "scale"
   }, axisTitle));
   const defs = svgElement("defs");
   const clip = svgElement("clipPath", { id: "tree-clip" });
@@ -314,6 +314,21 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     for (const tick of ticks) drawGrid(tick, false);
     grid.append(svgElement("line", { x1: plotLeft, x2: plotLeft + plotWidth, y1: 76, y2: 76, stroke: "#7f9691" }));
     svg.append(grid);
+  } else if (rawScale) {
+    const magnitude = 10 ** Math.floor(Math.log10(maxDistance)) || maxDistance;
+    ticks = maxDistance === 0 ? [0] : [...new Set(makeTicks(maxDistance / magnitude, 0, null).reverse().map(tick => tick * magnitude))];
+    measurement.font = "11px sans-serif";
+    while (ticks.some((tick, i) => i > 0 &&
+      (tick - ticks[i - 1]) / (maxDistance || 1) * plotWidth <
+      (measurement.measureText(String(tick)).width + measurement.measureText(String(ticks[i - 1])).width) / 2 + 12)) {
+      ticks = ticks.filter((_, i) => i % 2 === 0);
+    }
+    for (const tick of ticks) {
+      const x = plotLeft + tick / (maxDistance || 1) * plotWidth;
+      grid.append(svgElement("text", { x, y: 68, "text-anchor": "middle", "font-size": 11, fill: "#596d6a", "font-family": "sans-serif" }, String(tick)));
+    }
+    grid.append(svgElement("line", { x1: plotLeft, x2: plotLeft + plotWidth, y1: 76, y2: 76, stroke: "#7f9691" }));
+    svg.append(grid);
   }
   const root = points.get(tree.rootId)!;
   if (view.rootStem && (!time || (rootAge <= older && rootAge >= younger))) {
@@ -330,7 +345,9 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     const parent = p.source.parentId ? points.get(p.source.parentId) : undefined;
     if (parent) branches.append(svgElement("path", {
       d: `M${parent.x},${parent.y}V${p.y}H${p.x}`,
-      "data-parent-node": parent.source.id, "data-child-node": p.source.id
+      "data-parent-node": parent.source.id, "data-child-node": p.source.id,
+      ...((time && result.ages[p.source.id] === undefined) || (rawScale && p.source.length === null)
+        ? { "stroke-dasharray": "4 3", "data-unknown-length": "true" } : {})
     }));
   }
   svg.append(branches);
@@ -340,14 +357,15 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     const n = p.source;
     if (time && (result.ages[n.id] > older || result.ages[n.id] < younger)) continue;
     const chosen = view.selected === n.id;
-    const group = svgElement("g", { "data-node-id": n.id, role: "button", tabindex: 0, "aria-label": `${n.name || n.id}${time ? ` ${result.ages[n.id]} Ma` : ""}`, "aria-pressed": String(chosen), cursor: "pointer" });
+    const ageText = result.ages[n.id] === undefined ? "Age unknown" : `${result.ages[n.id]} Ma`;
+    const group = svgElement("g", { "data-node-id": n.id, role: "button", tabindex: 0, "aria-label": `${n.name || n.id}${time ? ` ${ageText}` : ""}`, "aria-pressed": String(chosen), cursor: "pointer" });
     const hollow = n.id === tree.rootId ? view.rootStyle === "hollow" : !chosen && n.children.length > 0;
     const marker = p.collapsed
       ? svgElement("path", { d: `M${p.x},${p.y - 7}L${p.x + 12},${p.y}L${p.x},${p.y + 7}Z`, fill: view.branchColor })
       : svgElement("circle", { cx: p.x, cy: p.y, r: chosen ? 5 : 3.2, fill: hollow ? "#ffffff" : chosen ? "#bb5b31" : view.branchColor, stroke: view.branchColor, "stroke-width": chosen ? 2 : 1.3 });
     group.append(svgElement("circle", { cx: p.x, cy: p.y, r: 10, fill: "transparent" }), marker);
     if (chosen) group.append(svgElement("circle", { cx: p.x, cy: p.y, r: 10, fill: "none", stroke: "#bb5b31", "stroke-dasharray": "3 2" }));
-    group.append(svgElement("title", {}, `${n.name || n.id}\n${time ? `${result.ages[n.id]} Ma\n${result.sources[n.id]}\n` : ""}Branch length: ${n.length ?? "Not provided"}\nSupport: ${n.support ?? "Not provided"}`));
+    group.append(svgElement("title", {}, `${n.name || n.id}\n${time ? `${ageText}\n${result.sources[n.id] ?? "Not provided"}\n` : ""}Branch length: ${n.length ?? "Not provided"}\nSupport: ${n.support ?? "Not provided"}`));
     group.addEventListener("click", () => select(n.id));
     group.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); select(n.id); } });
     markers.append(group);
@@ -362,5 +380,5 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   svg.append(markers, labels);
   if (time) svg.append(svgElement("text", { x: plotLeft, y: height - 20, fill: "#657875", "font-size": 11, "font-family": "sans-serif" },
     `Age range: ${older}–${younger} Ma`));
-  return { svg, width, height, points, older, younger, plotLeft, plotWidth, ticks };
+  return { svg, width, height, points, older, younger, plotLeft, plotWidth, ticks, axisTitle, scaleMaximum: maxDistance };
 }

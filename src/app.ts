@@ -1,13 +1,18 @@
-import sample from "../examples/synthetic-time-branches.nex";
-import trilobites from "../examples/trilobites-node-ages.nex";
-import cladogram from "../examples/synthetic-topology.nex";
-import { LIMITS, hasCompleteBranchLengths, isTimeMode, TIME_SOURCE_LABELS, VIEW_MODE_LABELS } from "./model.ts";
+import { localizeDocument, resolveLocale, t } from "./i18n.ts";
+import sample from "../examples/chronogram.nex";
+import trilobites from "../examples/dated-tree.nex";
+import relative from "../examples/relative-chronogram.nex";
+import phylogram from "../examples/phylogram.nex";
+import cladogram from "../examples/cladogram.nex";
+import { LIMITS, isTimeMode, TIME_SOURCE_LABELS, VIEW_MODE_LABELS } from "./model.ts";
 import type { SourceDocument, TimeOptions, ViewState, TimeResult } from "./model.ts";
 import { availableFields, parseDocument } from "./parsers.ts";
-import { ageX, interpretTime, resolveTimeSource, validZeroAgePair, zeroAgeMean } from "./time.ts";
+import { ageX, interpretTime, classifyTree, timeBranchesConfirmed, validZeroAgePair, zeroAgeMean } from "./time.ts";
 import { defaultTime, defaultView, loadProject, nodeCSV, saveProject } from "./project.ts";
-import { DIAGRAM_MODE_LABELS, TIME_AXIS_TITLE, drawTree, svgElement } from "./render.ts";
+import { DIAGRAM_MODE_LABELS, drawTree, svgElement } from "./render.ts";
 import type { Diagram } from "./render.ts";
+
+localizeDocument(document, resolveLocale(navigator.languages, navigator.language));
 
 function element(id: string): HTMLElement {
   const el = document.getElementById(id);
@@ -48,14 +53,14 @@ function message(text: string, type = "") {
 }
 function report(err: unknown) {
   console.error(err);
-  message(err instanceof Error ? err.message : "操作失敗，請檢查輸入資料。", "error");
+  message(err instanceof Error ? err.message : t("操作失敗，請檢查輸入資料。"), "error");
 }
 function action(fn: () => void | Promise<void>): () => void {
   return () => { Promise.resolve().then(fn).catch(report); };
 }
 function bind(id: string, fn: () => void | Promise<void>) { button(id).addEventListener("click", action(fn)); }
 function currentTree() {
-  if (!doc) throw new Error("請先開啟樹檔。");
+  if (!doc) throw new Error(t("請先開啟樹檔。"));
   return doc.trees[selectedTree];
 }
 function paragraph(parent: HTMLElement, text: string, className = "") {
@@ -63,40 +68,40 @@ function paragraph(parent: HTMLElement, text: string, className = "") {
 }
 function appendDetail(dl: HTMLDListElement, key: string, value: unknown) {
   const dt = document.createElement("dt"), dd = document.createElement("dd");
-  dt.textContent = key; dd.textContent = value === undefined || value === null ? "未提供" : String(value);
+  dt.textContent = key; dd.textContent = value === undefined || value === null ? t("未提供") : String(value);
   dl.append(dt, dd);
 }
 function timeModeActionLabel(): string {
   const selected = select("method").value;
   const target = selected === "nodes" || selected === "branches" ? selected : options.method;
-  const action = view.mode === target && result.valid ? "重新套用" : "切換至";
-  return `${action}${VIEW_MODE_LABELS[target]}`;
+  const mode = target === "nodes" ? "dated" : "chronogram";
+  return t("重新判定與套用 {0}", VIEW_MODE_LABELS[mode]);
 }
 function updateDetails() {
   const box = element("node-info");
   box.replaceChildren();
   const node = doc?.trees[selectedTree].nodes.find(n => n.id === view.selected);
   button("collapse").disabled = !node?.children.length;
-  if (!node) { box.textContent = "尚未選取節點"; return; }
+  if (!node) { box.textContent = t("尚未選取節點"); return; }
   const dl = document.createElement("dl");
-  appendDetail(dl, "節點／分類群", node.name || "未命名內部節點");
-  appendDetail(dl, "穩定節點 ID", node.id);
-  appendDetail(dl, "父節點 ID", node.parentId ?? "根");
+  appendDetail(dl, t("節點／分類群"), node.name || t("未命名內部節點"));
+  appendDetail(dl, t("穩定節點 ID"), node.id);
+  appendDetail(dl, t("父節點 ID"), node.parentId ?? t("根"));
   const time = isTimeMode(view.mode) && result.valid;
   if (time) {
-    appendDetail(dl, "距今年代（Ma，完整精度）", result.ages[node.id]);
-    appendDetail(dl, "年代來源", result.sources[node.id]);
-    appendDetail(dl, "檔案中的 0 對應距今年代", `${options.zeroAgeMa} Ma`);
-    if (options.zeroAgePairMa) appendDetail(dl, "所填年代範圍的中點", `(${options.zeroAgePairMa[0]}＋${options.zeroAgePairMa[1]}) ÷ 2＝${options.zeroAgeMa} Ma`);
-    appendDetail(dl, `原始 ${options.field}`, JSON.stringify(node.annotations[options.field]));
+    appendDetail(dl, t("距今年代（Ma，完整精度）"), result.ages[node.id] ?? "Age unknown");
+    appendDetail(dl, t("年代來源"), result.sources[node.id]);
+    appendDetail(dl, t("檔案中的 0 對應距今年代"), `${options.zeroAgeMa} Ma`);
+    if (options.zeroAgePairMa) appendDetail(dl, t("所填年代範圍的中點"), `(${options.zeroAgePairMa[0]}＋${options.zeroAgePairMa[1]}) ÷ 2＝${options.zeroAgeMa} Ma`);
+    appendDetail(dl, t("原始 {0}", options.field), JSON.stringify(node.annotations[options.field]));
     for (const interval of result.intervals[node.id] ?? []) appendDetail(dl, interval.key, `${interval.lower}–${interval.upper} Ma（${interval.type}）`);
   }
-  appendDetail(dl, "原始枝長", node.length);
-  appendDetail(dl, "支持度", node.support);
+  appendDetail(dl, t("原始枝長"), node.length);
+  appendDetail(dl, t("支持度"), node.support);
   const pre = document.createElement("pre");
   pre.textContent = JSON.stringify({ annotations: node.annotations, rawAnnotations: node.rawAnnotations }, null, 2);
   box.append(dl);
-  paragraph(box, time ? "原始註解" : "原始註解（未作年代解讀）", "hint");
+  paragraph(box, time ? t("原始註解") : t("原始註解（未作年代解讀）"), "hint");
   box.append(pre);
 }
 function updateDiagnostics() {
@@ -104,69 +109,51 @@ function updateDiagnostics() {
   const comparison = element("source-comparison"); comparison.replaceChildren();
   if (!doc) return;
   const tree = currentTree();
-  if (availableFields(tree).length === 0) {
-    element("source-status").textContent = `此樹沒有年代欄位或既有的絕對年代錨點，以${VIEW_MODE_LABELS.topology}顯示；不需設定年代。`;
-    element("method-nodes").textContent = `${TIME_SOURCE_LABELS.nodes}（無年代資料）`;
-    element("method-branches").textContent = `${TIME_SOURCE_LABELS.branches}（資料不足）`;
-    return;
-  }
   const nodes = options.method === "nodes" ? result : interpretTime(tree, { ...options, method: "nodes" });
   const branches = options.method === "branches" ? result : interpretTime(tree, { ...options, method: "branches" });
-  const rootMissing = tree.rooted === false || (tree.rooted === null && !options.rootedConfirmed);
-  const branchStatus = branches.valid ? "數值相容，請確認單位" : rootMissing ? "定根條件未滿足" : "數值不相容或資料不足";
-  element("method-nodes").textContent = `${TIME_SOURCE_LABELS.nodes}（${nodes.valid ? "可用" : "目前不可用"}）`;
-  element("method-branches").textContent = `${TIME_SOURCE_LABELS.branches}（${branchStatus}）`;
-  const status = [
-    view.mode === "topology" ? `目前為${VIEW_MODE_LABELS.topology}；年代來源僅供預檢，尚未切換至時間模式。` : `目前為${VIEW_MODE_LABELS[view.mode]}。`,
-    options.autoMethod
-      ? `自動判斷：${result.valid ? `已選用「${TIME_SOURCE_LABELS[options.method]}」。` : `兩種來源目前皆不可用，保留${VIEW_MODE_LABELS.topology}。`}`
-      : `手動指定：${TIME_SOURCE_LABELS[options.method]}。`,
-    `年代欄位：${options.field}。${result.valid
-      ? options.method === "nodes" ? "既有節點年代可直接使用，不以枝長推算年代。"
-        : "可由時間枝長與既有年代錨點推導。枝長必須代表時間間隔，不能直接使用演化替換數。"
-      : "目前來源檢核未通過，請查看右側診斷並修正設定。"}`,
-    view.mode === "topology" ? `確認年代欄位與「檔案中的 0 代表何時？」設定後，按「${timeModeActionLabel()}」。` : "年代已依目前來源與檔案中 0 的對應年代顯示。",
-    "如需手動切換來源，展開「進階：年代來源」中的「來源選擇」；修改後須重新套用時間模式。"
-  ];
-  element("source-status").textContent = status.join("\n");
+  element("method-nodes").textContent = `${TIME_SOURCE_LABELS.nodes}（${nodes.valid ? t("可用") : t("目前不可用")}）`;
+  element("method-branches").textContent = `${TIME_SOURCE_LABELS.branches}（${branches.valid ? t("可用") : t("目前不可用")}）`;
+  element("source-status").textContent = t("目前為 {0}。\n{1}\n修改設定後自動重新分類。", VIEW_MODE_LABELS[view.mode], isTimeMode(view.mode)
+    ? t("已選用「{0}」，年代欄位：{1}。", TIME_SOURCE_LABELS[options.method], options.field)
+    : view.mode === "relative" ? t("枝長已確認代表時間，但沒有絕對年代錨點。")
+    : view.mode === "phylogram" ? t("保留已知原始枝長比例，不宣稱絕對年代。")
+    : t("沒有枝長，僅顯示拓樸；每條分支固定等長。"));
   comparison.textContent = [
-    `${TIME_SOURCE_LABELS.nodes}：${nodes.valid ? `${options.field} 的節點年代完整且通過檢核。` : nodes.errors[0]}`,
-    `${TIME_SOURCE_LABELS.branches}：${branchStatus}。${branches.valid ? "可推導全樹年代。" : branches.errors[0]}`,
-    "以上為兩種來源的比較；未採用來源的檢核失敗不影響目前可用的來源。"
+    `${TIME_SOURCE_LABELS.nodes}：${nodes.valid ? t("{0} 的節點年代完整且通過檢核。", options.field) : nodes.errors[0]}`,
+    `${TIME_SOURCE_LABELS.branches}：${branches.valid ? t("可推導全樹年代。") : branches.errors[0]}`
   ].join("\n");
   paragraph(el, `${doc.filename} · ${doc.format} · ${tree.name}`);
-  paragraph(el, `年代欄位：${availableFields(tree).join("、") || "無"}；${Object.keys(result.ages).length}/${tree.nodes.length} 個節點有明確或可推導值。`);
-  paragraph(el, `輸入單位：${options.unit}；檔案中的 0 對應 ${options.zeroAgeMa} Ma。`);
-  if (options.evidence) paragraph(el, `年代備註：${options.evidence}`);
+  paragraph(el, t("年代欄位：{0}；{1}/{2} 個節點有明確或可推導值。", availableFields(tree).join("、") || t("無"), Object.keys(result.ages).length, tree.nodes.length));
+  paragraph(el, t("輸入單位：{0}；檔案中的 0 對應 {1} Ma。", options.unit, options.zeroAgeMa));
+  if (options.evidence) paragraph(el, t("年代備註：{0}", options.evidence));
   for (const warning of result.warnings) paragraph(el, warning, "problem");
-  if (result.errors.length) {
-    paragraph(el, `年代檢核未通過：${result.errors[0]}${options.method === "branches" && nodes.valid ? ` 請展開「進階：年代來源」，將「來源選擇」改為「${TIME_SOURCE_LABELS.nodes}」，再切換至${VIEW_MODE_LABELS.nodes}。` : ""}`, "problem");
+  if (result.errors.length && view.mode !== "relative") {
+    paragraph(el, t("年代檢核未通過：{0}", result.errors[0]), "problem");
     const details = document.createElement("details"), summary = document.createElement("summary");
-    summary.textContent = `查看 ${result.errors.length} 筆詳細檢核訊息`;
+    summary.textContent = t("查看 {0} 筆詳細檢核訊息", result.errors.length);
     details.append(summary);
     for (const err of result.errors) paragraph(details, err, "problem");
     el.append(details);
   }
-  if (result.valid) paragraph(el, view.mode === "topology"
-    ? `年代來源預檢通過；確認設定後按「${timeModeActionLabel()}」，檢核通過後才會切換模式。`
-    : "年代檢核通過。原始枝長與年代分開保留。", "good");
-  if (tree.nodes.length > 200 && !view.simplified) paragraph(el, "已依標籤大小調整縱向間距；樹較高時可向下捲動或折疊分支，也可在時間模式啟用「簡化標籤」。");
+  if (result.valid) paragraph(el, t("年代檢核通過。原始枝長與年代分開保留。"), "good");
+  if (tree.nodes.length > 200 && !view.simplified) paragraph(el, t("已依標籤大小調整縱向間距；樹較高時可向下捲動或折疊分支，也可在時間模式啟用「簡化標籤」。"));
 }
 function updateMetadata() {
   if (!doc) return;
   const tree = currentTree();
-  element("file-summary").textContent = `${doc.filename}\n${doc.format} · ${doc.trees.length} 棵樹`;
+  element("file-summary").textContent = t("{0}\n{1} · {2} 棵樹", doc.filename, doc.format, doc.trees.length);
   const stats = element("tree-stats");
   stats.replaceChildren();
   for (const text of [
-    `${tree.nodes.filter(n => !n.children.length).length} 個末端 OTU`, `${tree.nodes.length} 個節點`,
-    tree.rooted === true ? "已標記定根" : tree.rooted === false ? "標記為未定根" : "定根狀態未記錄",
-    `${availableFields(tree).length} 年代欄位`
+    t("{0} 個末端 OTU", tree.nodes.filter(n => !n.children.length).length), t("{0} 個節點", tree.nodes.length),
+    tree.rooted === true ? t("已標記定根") : tree.rooted === false ? t("標記為未定根") : t("定根狀態未記錄"),
+    t("{0} 年代欄位", availableFields(tree).length)
   ]) { const span = document.createElement("span"); span.textContent = text; stats.append(span); }
   const warnings = element("import-warnings");
   warnings.replaceChildren();
-  warnings.hidden = tree.warnings.length === 0;
-  for (const warning of tree.warnings) paragraph(warnings, warning, "problem");
+  const allWarnings = [...tree.warnings, ...result.warnings];
+  warnings.hidden = allWarnings.length === 0;
+  for (const warning of allWarnings) paragraph(warnings, warning, "problem");
 }
 function setCanvasGeometry() {
   if (!diagram) return;
@@ -187,38 +174,36 @@ function syncTimeViewControls() {
 }
 function updateModeUI() {
   const time = isTimeMode(view.mode) && result.valid;
-  const noTimeData = availableFields(currentTree()).length === 0;
-  const rawBranches = hasCompleteBranchLengths(currentTree());
-  element("time-interpretation").hidden = noTimeData;
-  element("diagnostics-section").hidden = noTimeData;
-  element("diagnostics-title").textContent = view.mode === "nodes" ? "節點年代診斷"
-    : view.mode === "branches" ? "時間枝長診斷" : "年代來源檢核";
+  const noTimeData = availableFields(currentTree()).length === 0 &&
+    !currentTree().nodes.some(n => ["root_age", "node_age", "tip_age", "calibration_age"].some(key => Object.hasOwn(n.annotations, key)));
+  const rawBranches = view.mode === "phylogram" || view.mode === "relative";
+  element("time-interpretation").hidden = false;
+  element("diagnostics-section").hidden = noTimeData && !timeBranchesConfirmed(currentTree(), options);
+  element("diagnostics-title").textContent = t("年代來源檢核");
   element("time-axis-settings").hidden = !time;
   element("time-label-settings").hidden = !time;
-  element("style-title").textContent = time ? "時間軸與樣式" : "樹圖樣式";
-  element("mode-description").textContent = view.mode === "nodes"
-    ? "依所選欄位的既有節點年代繪圖；化石末端保留各自的年代。"
-    : view.mode === "branches"
-      ? "依已確認的時間枝長與既有年代錨點推導全樹，以 Ma 顯示。"
-      : rawBranches ? "種系發生圖（Phylogram）：橫軸保留原始枝長比例，不將枝長、支持度或原始註解解讀為絕對年代。"
-      : "支序圖（Cladogram）：僅呈現支序關係；OTU 末端對齊且垂直等間距，水平距離不代表時間。";
+  element("style-title").textContent = time ? t("時間軸與樣式") : t("樹圖樣式");
+  element("mode-description").textContent = view.mode === "dated"
+    ? t("依所選欄位的既有節點年代繪圖；化石末端保留各自的年代。")
+    : view.mode === "chronogram"
+      ? t("依已確認的時間枝長與既有年代錨點推導全樹，以 Ma 顯示。")
+      : view.mode === "relative" ? t("Relative Chronogram：相對時間，無絕對年代錨點。")
+      : rawBranches ? t("Phylogram：原始枝長比例，時間尺度未經驗證。")
+      : t("Cladogram：每條分支固定等長，僅顯示拓樸。");
   element("layout-help").textContent = time
-    ? "依文字與枝線範圍調整間距，父節點保持置中。年代為四捨五入值，精確值見右側。"
-    : rawBranches ? "保留原始枝長的水平比例；依標籤調整縱向間距。樹較高時可向下捲動。"
-    : "OTU 末端對齊且垂直等間距，父節點保持置中。樹較高時可向下捲動。";
-  for (const id of ["method", "age-field", "root-confirmed"]) select(id).disabled = noTimeData;
+    ? t("依文字與枝線範圍調整間距，父節點保持置中。年代為四捨五入值，精確值見右側。")
+    : rawBranches ? t("保留原始枝長的水平比例；OTU 縱向等間距，父節點保持置中。樹較高時可向下捲動。")
+    : t("每條分支固定等長，OTU 縱向等間距，父節點保持置中。樹較高時可向下捲動。");
+  for (const id of ["method", "age-field", "root-confirmed"]) select(id).disabled = false;
   for (const id of ["zero-age-single", "zero-age-range", "zero-age"]) input(id).disabled = noTimeData;
   for (const id of ["grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "ages", "all-tips", "simplified"]) input(id).disabled = !time;
   select("time-range").disabled = !time;
   input("zero-age-second").disabled = noTimeData || !input("zero-age-range").checked;
   evidenceInput.disabled = noTimeData;
-  button("apply-time").disabled = noTimeData;
-  button("apply-time").hidden = noTimeData;
+  button("apply-time").disabled = !time;
+  button("apply-time").hidden = !time;
   button("apply-time").textContent = timeModeActionLabel();
-  button("apply-time").title = `先檢核年代設定，通過後套用目標模式；未通過則保留${VIEW_MODE_LABELS.topology}。`;
-  button("general").disabled = !time;
-  button("general").hidden = !time;
-  button("general").textContent = `切換至${VIEW_MODE_LABELS.topology}`;
+  button("apply-time").title = t("依目前設定重新分類");
   input("older").disabled = !time || view.autoRange;
   input("younger").disabled = !time || view.autoRange;
   if (view.autoRange && time && diagram) {
@@ -226,10 +211,10 @@ function updateModeUI() {
     input("younger").value = String(diagram.younger);
   }
   element("range-summary").textContent = time && diagram
-    ? `${view.autoRange ? "自動貼合" : "手動範圍"}：${Number(diagram.older.toPrecision(10))}–${Number(diagram.younger.toPrecision(10))} Ma；維持線性比例，不強制延伸至現在。`
-    : `${VIEW_MODE_LABELS.topology}不使用時間軸；切換至時間模式後才顯示時間軸設定。`;
+    ? t("{0}：{1}–{2} Ma；維持線性比例，不強制延伸至現在。", view.autoRange ? t("自動貼合") : t("手動範圍"), Number(diagram.older.toPrecision(10)), Number(diagram.younger.toPrecision(10)))
+    : t("{0} 不使用絕對年代軸。", VIEW_MODE_LABELS[view.mode]);
   const badge = element("mode-badge");
-  const mode = time ? view.mode : "topology";
+  const mode = view.mode;
   badge.textContent = VIEW_MODE_LABELS[mode];
   badge.dataset.mode = mode;
   badge.className = `badge${isTimeMode(mode) ? " time" : ""}`;
@@ -243,6 +228,7 @@ function render() {
   diagram = next;
   canvas.replaceChildren(diagram.svg);
   setCanvasGeometry();
+  updateMetadata();
   updateModeUI();
   updateDetails(); updateDiagnostics();
 }
@@ -256,6 +242,7 @@ function syncControls() {
   input("zero-age-single").checked = options.zeroAgePairMa === null;
   syncZeroAgeMode();
   evidenceInput.value = options.evidence;
+  input("branch-time").checked = options.branchTimeConfirmed;
   element("root-status").hidden = currentTree().rooted !== null;
   select("root-confirmed").value = options.rootedConfirmed ? "rooted" : "unknown";
   const fields = availableFields(currentTree());
@@ -263,7 +250,7 @@ function syncControls() {
   ageField.replaceChildren();
   for (const field of new Set([options.field, ...fields])) {
     const option = document.createElement("option"); option.value = field;
-    option.textContent = fields.includes(field) ? field : `${field}（檔案未提供）`; ageField.append(option);
+    option.textContent = fields.includes(field) ? field : t("{0}（檔案未提供）", field); ageField.append(option);
   }
   ageField.value = options.field;
   for (const [id, value] of Object.entries({
@@ -275,10 +262,10 @@ function syncControls() {
   select("order").value = view.order;
 }
 function commitDocument(nextDoc: SourceDocument, index = 0, nextOptions = defaultTime(), nextView = defaultView()) {
-  const resolved = resolveTimeSource(nextDoc.trees[index], nextOptions);
+  const resolved = classifyTree(nextDoc.trees[index], nextOptions);
   nextOptions = resolved.options;
   const nextResult = resolved.result;
-  nextView = { ...nextView, mode: isTimeMode(nextView.mode) && nextResult.valid ? nextOptions.method : "topology" };
+  nextView = { ...nextView, mode: resolved.mode };
   // Validate drawing settings before replacing a valid open project.
   drawTree(nextDoc.trees[index], nextResult, nextView, canvas.clientWidth, () => {});
   doc = nextDoc; selectedTree = index; options = nextOptions; view = nextView; result = nextResult;
@@ -287,17 +274,17 @@ function commitDocument(nextDoc: SourceDocument, index = 0, nextOptions = defaul
     const opt = document.createElement("option"); opt.value = String(i); opt.textContent = `${i + 1}. ${tree.name}`; selector.append(opt);
   }
   selector.value = String(index);
-  for (const id of ["save", "apply-time", "general", "find", "fit", "zoom-in", "zoom-out", "svg", "png", "csv", "original", "expand-all"]) button(id).disabled = false;
+  for (const id of ["save", "apply-time", "find", "fit", "zoom-in", "zoom-out", "svg", "png", "csv", "original", "expand-all"]) button(id).disabled = false;
   syncControls(); updateMetadata(); render();
 }
 async function openFile(file: File) {
   const sequence = ++loadSequence;
   const project = file.name.toLowerCase().endsWith(".json");
-  if (file.size > (project ? 32 * 1024 * 1024 : LIMITS.bytes)) throw new Error(`${file.name}：檔案超過 ${project ? "32" : "10"} MiB 限制。`);
-  message(`正在讀取 ${file.name}…`);
+  if (file.size > (project ? 32 * 1024 * 1024 : LIMITS.bytes)) throw new Error(t("{0}：檔案超過 {1} MiB 限制。", file.name, project ? "32" : "10"));
+  message(t("正在讀取 {0}…", file.name));
   let content: string;
   try { content = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(await file.arrayBuffer()); }
-  catch { throw new Error(`${file.name}：讀取失敗或非有效 UTF-8，請重新匯出 UTF-8 檔案。`); }
+  catch { throw new Error(t("{0}：讀取失敗或非有效 UTF-8，請重新匯出 UTF-8 檔案。", file.name)); }
   if (sequence !== loadSequence) return;
   try {
     if (project) {
@@ -305,18 +292,16 @@ async function openFile(file: File) {
       commitDocument(restored.doc, restored.selectedTree, restored.options, restored.view);
     } else commitDocument(parseDocument(content, file.name, select("format").value));
   } catch (err) {
-    throw new Error(`${file.name}：${err instanceof Error ? err.message : "匯入失敗"}；目前專案保持不變。`);
+    throw new Error(t("{0}：{1}；目前專案保持不變。", file.name, err instanceof Error ? err.message : t("匯入失敗")));
   }
-  message(`${file.name} 已開啟；${project ? "已還原專案設定。" : availableFields(currentTree()).length
-    ? `目前以${VIEW_MODE_LABELS.topology}顯示；確認年代來源與「檔案中的 0 代表何時？」設定後，按「${timeModeActionLabel()}」。`
-    : `已以${VIEW_MODE_LABELS.topology}顯示，不需設定年代。`}`, "success");
+  message(t("{0} 已開啟；{1} {2}", file.name, project ? t("已還原專案設定。") : "", VIEW_MODE_LABELS[view.mode]), "success");
 }
 function syncZeroAgeMode() {
   const range = input("zero-age-range").checked;
-  element("zero-age-first-label").textContent = range ? "端點 A（Ma）" : "距今年代（Ma）";
+  element("zero-age-first-label").textContent = range ? t("端點 A（Ma）") : t("距今年代（Ma）");
   element("zero-age-help").textContent = range
-    ? "填入檔案中 0 所代表年代的兩個端點（Ma），順序不限；以中點作為代表年代。"
-    : "若 0 代表現在，填 0；若代表最年輕化石，填入該化石距今多少百萬年。";
+    ? t("填入檔案中 0 所代表年代的兩個端點（Ma），順序不限；以中點作為代表年代。")
+    : t("若 0 代表現在，填 0；若代表最年輕化石，填入該化石距今多少百萬年。");
   element("zero-age-second-label").hidden = !range;
   input("zero-age-second").required = range;
   input("zero-age-second").disabled = !range;
@@ -328,9 +313,9 @@ function updateZeroAgeSummary() {
   const first = input("zero-age").valueAsNumber;
   const second = range ? input("zero-age-second").valueAsNumber : null;
   const valid = validZeroAgePair([first, second ?? first]);
-  element("zero-age-summary").textContent = !valid ? range ? "請填入兩個端點（0–10^15 Ma，順序不限）。" : "請輸入檔案中 0 所代表的距今年代（0–10^15 Ma）。"
-    : second === null ? first === 0 ? "檔案中的 0＝現在（0 Ma）" : `檔案中的 0＝${first} Ma`
-    : `採用中點：（${first}＋${second}）÷2＝${zeroAgeMean([first, second])} Ma`;
+  element("zero-age-summary").textContent = !valid ? range ? t("請填入兩個端點（0–10^15 Ma，順序不限）。") : t("請輸入檔案中 0 所代表的距今年代（0–10^15 Ma）。")
+    : second === null ? first === 0 ? t("檔案中的 0＝現在（0 Ma）") : t("檔案中的 0＝{0} Ma", first)
+    : t("採用中點：（{0}＋{1}）÷2＝{2} Ma", first, second, zeroAgeMean([first, second]));
 }
 function readTimeOptions(): TimeOptions {
   const method = select("method").value;
@@ -343,7 +328,8 @@ function readTimeOptions(): TimeOptions {
     unit: "Ma",
     origin: "present", zeroAgeMa: pair ? zeroAgeMean(pair) : first, zeroAgePairMa: pair,
     evidence: evidenceInput.value.trim(),
-    rootedConfirmed: currentTree().rooted === null && select("root-confirmed").value === "rooted"
+    rootedConfirmed: currentTree().rooted === null && select("root-confirmed").value === "rooted",
+    branchTimeConfirmed: input("branch-time").checked
   };
 }
 function readNumber(id: string, min: number, max: number, nullable = false): number | null {
@@ -352,8 +338,8 @@ function readNumber(id: string, min: number, max: number, nullable = false): num
   const value = Number(raw);
   if (raw === "" || !Number.isFinite(value) || value < min || value > max) {
     const name = control.labels?.[0]?.innerText.trim() || id;
-    const range = min === Number.MIN_VALUE ? `大於 0 且不超過 ${max}` : `${min}–${max} 之間`;
-    throw new Error(`「${name}」須填入 ${range} 的有效數值。`);
+    const range = min === Number.MIN_VALUE ? t("大於 0 且不超過 {0}", max) : t("{0}–{1} 之間", min, max);
+    throw new Error(t("「{0}」須填入 {1} 的有效數值。", name, range));
   }
   return value;
 }
@@ -367,7 +353,7 @@ function readView(): ViewState {
   };
   if (!isTimeMode(view.mode)) return common;
   const decimals = readNumber("decimals", 0, 6)!;
-  if (!Number.isInteger(decimals)) throw new Error("年代標籤小數位必須是 0–6 的整數。");
+  if (!Number.isInteger(decimals)) throw new Error(t("年代標籤小數位必須是 0–6 的整數。"));
   const autoRange = select("time-range").value === "auto";
   return {
     ...common, autoRange,
@@ -390,56 +376,41 @@ select("demo").addEventListener("change", action(() => {
   const choice = select("demo").value;
   if (!choice) return;
   try {
-    if (choice === "synthetic") {
-      commitDocument(parseDocument(sample, "synthetic-time-branches.nex"), 0, {
-        ...defaultTime(),
-        evidence: "虛構時間枝長範例：根節點 age_mean＝100 Ma；枝長表示經過的百萬年，不是替換數；其餘節點年代由此推導。數值僅供示範。"
-      });
-      message(`已載入虛構時間枝長範例：根節點年代錨點為 100 Ma；目前以${VIEW_MODE_LABELS.topology}顯示。確認設定後，按「${timeModeActionLabel()}」。`, "success");
-    } else if (choice === "trilobites") {
-      commitDocument(parseDocument(trilobites, "trilobites-node-ages.nex"));
-      message(`已載入三葉蟲共識樹。請確認年代欄位，並設定檔案中的 0 所代表的年代，再按「${timeModeActionLabel()}」；不預填化石校正值。`, "success");
-    } else if (choice === "cladogram") {
-      commitDocument(parseDocument(cladogram, "synthetic-topology.nex"));
-      message("已載入虛構支序圖（Cladogram）：不含年代或枝長，水平距離不代表時間；勾選「支持度」可查看虛構的示範數值。", "success");
-    } else throw new Error("不支援的範例選項。");
+    const examples: Record<string, string> = { chronogram: sample, dated: trilobites, relative, phylogram, cladogram };
+    const filenames: Record<string, string> = { chronogram: "chronogram.nex", dated: "dated-tree.nex", relative: "relative-chronogram.nex", phylogram: "phylogram.nex", cladogram: "cladogram.nex" };
+    if (!Object.hasOwn(examples, choice)) throw new Error(t("不支援的範例選項。"));
+    commitDocument(parseDocument(examples[choice], filenames[choice]));
+    message(t("已載入範例：{0}。", VIEW_MODE_LABELS[view.mode]), "success");
   } finally { select("demo").value = ""; }
 }));
 select("tree").addEventListener("change", action(() => {
   if (!doc) return;
   commitDocument(doc, Number(select("tree").value));
-  message(availableFields(currentTree()).length ? `已切換樹；目前以${VIEW_MODE_LABELS.topology}顯示，請針對這棵樹重新確認年代解讀。`
-    : `已切換樹；目前以${VIEW_MODE_LABELS.topology}顯示，不需設定年代。`);
+  message(t("已切換樹：{0}。", VIEW_MODE_LABELS[view.mode]));
 }));
 bind("apply-time", () => {
-  const { options: nextOptions, result: nextResult } = resolveTimeSource(currentTree(), readTimeOptions());
-  const nextView = { ...readView(), mode: nextResult.valid ? nextOptions.method : "topology" } satisfies ViewState;
+  const { options: nextOptions, result: nextResult, mode } = classifyTree(currentTree(), readTimeOptions());
+  const nextView = { ...readView(), mode } satisfies ViewState;
   drawTree(currentTree(), nextResult, nextView, canvas.clientWidth, () => {});
   options = nextOptions; result = nextResult; view = nextView;
   syncTimeViewControls();
   render();
-  message(result.valid ? `已套用${VIEW_MODE_LABELS[view.mode]}；年代檢核通過。` : `年代檢核未通過，未切換至${VIEW_MODE_LABELS[options.method]}；目前維持${VIEW_MODE_LABELS.topology}。請查看右側診斷。`, result.valid ? "success" : "error");
+  message(t("已重新分類：{0}。", VIEW_MODE_LABELS[view.mode]), "success");
 });
-bind("general", () => { view.mode = "topology"; render(); message(`${VIEW_MODE_LABELS.topology}：水平距離不代表絕對年代；有完整原始枝長時保留其比例，否則末端對齊且等間距。`); });
 for (const id of ["zero-age", "zero-age-second"]) input(id).addEventListener("input", updateZeroAgeSummary);
-for (const id of ["method", "age-field", "zero-age-single", "zero-age-range", "zero-age", "zero-age-second", "root-confirmed"]) {
+for (const id of ["method", "age-field", "zero-age-single", "zero-age-range", "zero-age", "zero-age-second", "root-confirmed", "branch-time"]) {
   element(id).addEventListener("change", action(() => {
     const modeChanged = id === "zero-age-single" || id === "zero-age-range";
     if (modeChanged) syncZeroAgeMode();
-    if (doc) {
-      view.mode = "topology";
-      result = interpretTime(currentTree(), options);
-      render();
-    }
     if (!doc) return;
     if (modeChanged && input("zero-age-range").checked && input("zero-age-second").value === "") {
-      message(`請填入「年代範圍（取中點）」的端點 A 與端點 B（順序不限），再按「${timeModeActionLabel()}」。`);
+      message(t("請填入「年代範圍（取中點）」的端點 A 與端點 B（順序不限），完成後會自動重新分類。"));
       return;
     }
-    const resolved = resolveTimeSource(currentTree(), readTimeOptions());
+    const resolved = classifyTree(currentTree(), readTimeOptions());
     options = resolved.options;
-    view.mode = "topology"; result = resolved.result; render();
-    message(`年代設定已變更，目前為${VIEW_MODE_LABELS.topology}。確認設定後，按「${timeModeActionLabel()}」。`);
+    view.mode = resolved.mode; result = resolved.result; render();
+    message(t("年代設定已變更：{0}。", VIEW_MODE_LABELS[view.mode]));
   }));
 }
 evidenceInput.addEventListener("change", action(() => {
@@ -452,7 +423,7 @@ for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "
     const next = readView();
     drawTree(currentTree(), result, next, canvas.clientWidth, () => {});
     view = next; render();
-    message(isTimeMode(view.mode) && view.simplified ? "已簡化標籤：保留末端名稱與選取節點標籤；其他資訊可點選節點查看。" : "檢視設定已更新。");
+    message(isTimeMode(view.mode) && view.simplified ? t("已簡化標籤：保留末端名稱與選取節點標籤；其他資訊可點選節點查看。") : t("檢視設定已更新。"));
   }));
 }
 function zoom(factor: number) {
@@ -497,10 +468,10 @@ canvas.addEventListener("drop", e => {
 });
 bind("find", () => {
   const query = input("search").value.trim().toLocaleLowerCase();
-  if (!query) throw new Error("請輸入分類群名稱或節點 ID。");
+  if (!query) throw new Error(t("請輸入分類群名稱或節點 ID。"));
   const tree = currentTree();
   const matches = tree.nodes.filter(n => n.id.toLowerCase() === query || n.name.toLocaleLowerCase().includes(query));
-  if (!matches.length) throw new Error("找不到符合的分類群或節點。");
+  if (!matches.length) throw new Error(t("找不到符合的分類群或節點。"));
   const index = matches.findIndex(n => n.id === view.selected), node = matches[(index + 1) % matches.length];
   const map = new Map(tree.nodes.map(n => [n.id, n]));
   let parent = node.parentId;
@@ -511,12 +482,12 @@ bind("find", () => {
   view.selected = node.id; render();
   const point = diagram!.points.get(node.id)!;
   canvas.scrollTo({ left: point.x * view.zoom - canvas.clientWidth / 2, top: point.y * view.zoom - canvas.clientHeight / 2 });
-  message(`已定位 ${node.name || node.id}（${node.id}）；共 ${matches.length} 筆，再按定位可循環。`, "success");
+  message(t("已定位 {0}（{1}）；共 {2} 筆，再按定位可循環。", node.name || node.id, node.id, matches.length), "success");
 });
 input("search").addEventListener("keydown", e => { if (e.key === "Enter") button("find").click(); });
 bind("collapse", () => {
   const node = currentTree().nodes.find(n => n.id === view.selected);
-  if (!node?.children.length) throw new Error("請先選取內部節點。");
+  if (!node?.children.length) throw new Error(t("請先選取內部節點。"));
   view.collapsed = view.collapsed.includes(node.id) ? view.collapsed.filter(id => id !== node.id) : [...view.collapsed, node.id];
   render();
 });
@@ -534,9 +505,9 @@ bind("save", () => {
 bind("original", () => { if (doc) download(doc.content, "text/plain;charset=utf-8", doc.filename); });
 bind("csv", () => { if (doc) download(nodeCSV(currentTree(), result, options, view.mode), "text/csv;charset=utf-8", "tree-nodes.csv"); });
 function exportSVG(): { text: string; width: number; height: number } {
-  if (!diagram) throw new Error("請先開啟樹檔。");
+  if (!diagram) throw new Error(t("請先開啟樹檔。"));
   const svg = diagram.svg.cloneNode(true);
-  if (!(svg instanceof SVGSVGElement)) throw new Error("SVG 複製失敗。");
+  if (!(svg instanceof SVGSVGElement)) throw new Error(t("SVG 複製失敗。"));
   svg.removeAttribute("style");
   let width = diagram.width, height = diagram.height;
   if (select("export-scope").value === "viewport") {
@@ -556,12 +527,14 @@ function exportSVG(): { text: string; width: number; height: number } {
     header.append(svgElement("rect", { x: left, y: top, width, height: 65, fill: "#ffffff" }));
     header.append(svgElement("text", { x: left + 10, y: top + 18, fill: "#203f3c", "font-size": 12, "font-family": "sans-serif" },
       `${currentTree().name} · ${DIAGRAM_MODE_LABELS[view.mode]} · Current view`));
-    if (isTimeMode(view.mode) && result.valid) {
+    if (diagram.ticks.length) {
       header.append(svgElement("text", {
         x: left + 10, y: top + 40, fill: "#526966", "font-size": 12, "font-family": "sans-serif", "data-axis-title": "time"
-      }, TIME_AXIS_TITLE));
+      }, diagram.axisTitle));
       for (const tick of diagram.ticks) {
-        const x = ageX(tick, diagram.older, diagram.younger, diagram.plotLeft, diagram.plotWidth);
+        const x = isTimeMode(view.mode)
+          ? ageX(tick, diagram.older, diagram.younger, diagram.plotLeft, diagram.plotWidth)
+          : diagram.plotLeft + tick / (diagram.scaleMaximum || 1) * diagram.plotWidth;
         if (x < left + diagram.plotLeft || x > left + width - 8) continue;
         header.append(svgElement("line", { x1: x, x2: x, y1: top + 47, y2: top + 55, stroke: "#7f9691" }));
         header.append(svgElement("text", { x, y: top + 40, "text-anchor": "middle", fill: "#596d6a", "font-size": 11, "font-family": "sans-serif" }, String(tick)));
@@ -579,15 +552,15 @@ bind("svg", () => { const svg = exportSVG(); download(svg.text, "image/svg+xml;c
 bind("png", async () => {
   const svg = exportSVG(), scale = Number(select("png-scale").value);
   const width = svg.width * scale, height = svg.height * scale;
-  if (width > 16384 || height > 16384 || width * height > 64_000_000) throw new Error("PNG 超過畫布限制（單邊 16,384 px、總 6,400 萬像素）。請選目前視窗、降低倍率或改存 SVG。");
+  if (width > 16384 || height > 16384 || width * height > 64_000_000) throw new Error(t("PNG 超過畫布限制（單邊 16,384 px、總 6,400 萬像素）。請選目前視窗、降低倍率或改存 SVG。"));
   const url = URL.createObjectURL(new Blob([svg.text], { type: "image/svg+xml" }));
   try {
     const image = new Image();
-    await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("PNG 圖像載入失敗。")); image.src = url; });
+    await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error(t("PNG 圖像載入失敗。"))); image.src = url; });
     const surface = document.createElement("canvas"); surface.width = width; surface.height = height;
-    const ctx = surface.getContext("2d"); if (!ctx) throw new Error("無法建立 PNG 畫布。");
+    const ctx = surface.getContext("2d"); if (!ctx) throw new Error(t("無法建立 PNG 畫布。"));
     ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); ctx.drawImage(image, 0, 0, width, height);
-    const blob = await new Promise<Blob>((resolve, reject) => surface.toBlob(b => b ? resolve(b) : reject(new Error("PNG 轉換失敗。")), "image/png"));
+    const blob = await new Promise<Blob>((resolve, reject) => surface.toBlob(b => b ? resolve(b) : reject(new Error(t("PNG 轉換失敗。"))), "image/png"));
     download(blob, "image/png", "paleotree.png");
   } finally { URL.revokeObjectURL(url); }
 });

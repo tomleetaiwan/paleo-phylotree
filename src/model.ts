@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 export type Annotation = string | number | boolean | Annotation[];
 export interface TreeNode {
   id: string;
@@ -33,6 +34,7 @@ export interface TimeOptions {
   zeroAgePairMa: [number, number] | null;
   evidence: string;
   rootedConfirmed: boolean;
+  branchTimeConfirmed: boolean;
 }
 export interface Interval {
   key: string;
@@ -48,22 +50,26 @@ export interface TimeResult {
   errors: string[];
   warnings: string[];
 }
-export type ViewMode = TimeOptions["method"] | "topology";
+export type ViewMode = "dated" | "chronogram" | "relative" | "phylogram" | "cladogram";
 export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
-  nodes: "節點年代模式（Node ages, Ma）",
-  branches: "時間枝長模式（Time branches, Ma）",
-  topology: "拓樸模式（Topology）"
+  dated: "Dated Tree",
+  chronogram: "Chronogram",
+  relative: "Relative Chronogram",
+  phylogram: "Phylogram",
+  cladogram: "Cladogram"
 };
 export const TIME_SOURCE_LABELS: Record<TimeOptions["method"], string> = {
-  nodes: "明確節點年代",
-  branches: "時間枝長＋既有年代錨點"
+  get nodes() { return t("明確節點年代"); },
+  get branches() { return t("時間枝長＋既有年代錨點"); }
 };
-export function isTimeMode(mode: ViewMode): mode is TimeOptions["method"] {
-  return mode === "nodes" || mode === "branches";
+export function isTimeMode(mode: ViewMode): boolean {
+  return mode === "dated" || mode === "chronogram";
+}
+export function hasBranchLengths(tree: Tree): boolean {
+  return tree.nodes.some(n => n.parentId !== null && n.length !== null);
 }
 export function hasCompleteBranchLengths(tree: Tree): boolean {
-  return tree.nodes.every(n => !n.parentId || n.length !== null) &&
-    tree.nodes.some(n => n.parentId && (n.length ?? 0) > 0);
+  return tree.nodes.every(n => !n.parentId || n.length !== null);
 }
 export interface ViewState {
   mode: ViewMode;
@@ -93,6 +99,6 @@ export interface ViewState {
   panX: number;
   panY: number;
 }
-export const APP_VERSION = "0.1.0";
+export const APP_VERSION = "0.2.0";
 export const PHYLOTREE_VERSION = "2.6.1";
 export const LIMITS = { bytes: 10 * 1024 * 1024, trees: 100, nodes: 200_000, tips: 1000, depth: 512, annotation: 65_536 };

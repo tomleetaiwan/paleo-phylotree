@@ -4,106 +4,108 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>PaleoTree — 種系樹檢視器</title>
+  <title data-i18n="PaleoTree — 種系樹檢視器">PaleoTree — 種系樹檢視器</title>
   <style>/*APP_STYLE*/</style>
 </head>
 <body>
   <header class="topbar">
     <div class="brand"><img class="brand-icon" src="/*APP_ICON*/" width="52" height="52" alt="" aria-hidden="true"><div><h1>PaleoTree</h1></div></div>
     <div class="toolbar">
-      <label class="format-label">格式 <select id="format" aria-label="輸入格式"><option value="auto">自動辨識</option value="nexus">NEXUS / MrBayes</option><option value="newick">Newick</option><option value="nhx">NHX</option><option value="hyphy">HyPhy</option><option value="beast">BEAST 註解樹</option><option value="phyloxml">PhyloXML</option><option value="nexml">NeXML</option></select></label>
-      <button id="open" class="primary">開啟檔案</button><input id="file" type="file" hidden accept=".nex,.nexus,.tre,.tree,.nwk,.newick,.t,.xml,.nexml,.phyloxml,.json,.nhx">
-      <label class="format-label">載入範例 <select id="demo"><option value="">選擇範例…</option><option value="synthetic">synthetic-time-branches.nex</option><option value="trilobites">trilobites-node-ages.nex</option><option value="cladogram">synthetic-topology.nex</option></select></label>
-      <button id="save" disabled>儲存專案</button>
+      <label class="format-label"><span data-i18n="格式">格式</span> <select id="format" aria-label="輸入格式" data-i18n-aria-label="輸入格式"><option value="auto" data-i18n="自動辨識">自動辨識</option><option value="nexus">NEXUS / MrBayes</option><option value="newick">Newick</option><option value="nhx">NHX</option><option value="hyphy">HyPhy</option><option value="beast" data-i18n="BEAST 註解樹">BEAST 註解樹</option><option value="phyloxml">PhyloXML</option><option value="nexml">NeXML</option></select></label>
+      <button id="open" class="primary"><span data-i18n="開啟檔案">開啟檔案</span></button><input id="file" type="file" hidden accept=".nex,.nexus,.tre,.tree,.nwk,.newick,.t,.xml,.nexml,.phyloxml,.json,.nhx">
+      <label class="format-label"><span data-i18n="載入範例">載入範例</span> <select id="demo"><option value="" data-i18n="選擇範例…">選擇範例…</option><option value="dated">dated-tree.nex</option><option value="chronogram">chronogram.nex</option><option value="relative">relative-chronogram.nex</option><option value="phylogram">phylogram.nex</option><option value="cladogram">cladogram.nex</option></select></label>
+      <button id="save" disabled><span data-i18n="儲存專案">儲存專案</span></button>
     </div>
   </header>
-  <div id="notice" role="status" aria-live="polite">請開啟樹檔，或載入內建範例。</div>
+  <div id="notice" role="status" aria-live="polite"><span data-i18n="請開啟樹檔，或載入內建範例。">請開啟樹檔，或載入內建範例。</span></div>
   <main id="main-layout">
     <aside id="settings-pane" class="settings">
-      <section><h2><span>資料來源</span></h2>
-        <p id="file-summary" class="muted">尚未開啟檔案</p>
-        <label>樹<select id="tree" disabled><option>尚無樹</option></select></label>
+      <section><h2><span><span data-i18n="資料來源">資料來源</span></span></h2>
+        <p id="file-summary" class="muted"><span data-i18n="尚未開啟檔案">尚未開啟檔案</span></p>
+        <label><span data-i18n="樹">樹</span><select id="tree" disabled><option data-i18n="尚無樹">尚無樹</option></select></label>
         <div id="tree-stats" class="stat-grid"></div>
         <div id="import-warnings" class="diagnostics" role="status" hidden></div>
       </section>
-      <section><h2><span>繪圖模式</span><span id="mode-badge" class="badge" data-mode="topology">拓樸模式（Topology）</span></h2>
-        <p id="mode-description" class="hint">載入樹檔後，先以拓樸模式（Topology）顯示；有可用年代資料時，可切換至節點年代模式（Node ages, Ma）或時間枝長模式（Time branches, Ma）。</p>
-        <p id="source-status" class="hint" role="status">年代來源預設自動判斷；確認設定後，按下目標模式按鈕才會切換模式。</p>
+      <section><h2><span><span data-i18n="類型">類型</span></span><span id="mode-badge" class="badge" data-mode="cladogram">Cladogram</span></h2>
+        <p id="mode-description" class="hint">Dated Tree · Chronogram · Relative Chronogram · Phylogram · Cladogram</p>
+        <p id="source-status" class="hint" role="status"><span data-i18n="載入後依年代資訊自動分類；不以枝長數值推測時間語意。">載入後依年代資訊自動分類；不以枝長數值推測時間語意。</span></p>
         <div id="time-interpretation">
-        <p class="hint">顯示既有定年結果，不重新定年。</p>
-        <details id="source-settings"><summary>進階：年代來源</summary>
-          <label>來源選擇<select id="method" aria-describedby="source-status"><option value="auto">自動判斷（預設）</option><option id="method-nodes" value="nodes">明確節點年代</option><option id="method-branches" value="branches">時間枝長＋既有年代錨點</option></select></label>
+        <p class="hint"><span data-i18n="顯示既有定年結果，不重新定年。">顯示既有定年結果，不重新定年。</span></p>
+        <label class="check"><input id="branch-time" type="checkbox"><span data-i18n="已確認枝長代表時間">已確認枝長代表時間</span></label>
+        <p class="hint"><span data-i18n="僅在原分析確定枝長代表時間時勾選。亦接受根節點註解 branch_length_unit=Ma 或 relative_time。沒有絕對錨點時不顯示 Ma。">僅在原分析確定枝長代表時間時勾選。亦接受根節點註解 branch_length_unit=Ma 或 relative_time。沒有絕對錨點時不顯示 Ma。</span></p>
+        <details id="source-settings"><summary><span data-i18n="進階：年代來源">進階：年代來源</span></summary>
+          <label><span data-i18n="來源選擇">來源選擇</span><select id="method" aria-describedby="source-status"><option value="auto" data-i18n="自動判斷（預設）">自動判斷（預設）</option><option id="method-nodes" value="nodes" data-i18n="明確節點年代">明確節點年代</option><option id="method-branches" value="branches" data-i18n="時間枝長＋既有年代錨點">時間枝長＋既有年代錨點</option></select></label>
           <p id="source-comparison" class="hint"></p>
         </details>
-        <label>年代欄位（全樹一致）<select id="age-field"><option value="age_mean">age_mean（檔案未提供）</option></select></label>
-        <p class="hint">Ma：距今百萬年，例如 100 Ma＝距今 1 億年。</p>
+        <label><span data-i18n="年代欄位（全樹一致）">年代欄位（全樹一致）</span><select id="age-field"><option value="age_mean" data-i18n="age_mean（檔案未提供）">age_mean（檔案未提供）</option></select></label>
+        <p class="hint"><span data-i18n="Ma：距今百萬年，例如 100 Ma＝距今 1 億年。">Ma：距今百萬年，例如 100 Ma＝距今 1 億年。</span></p>
         <fieldset class="zero-age-settings" aria-describedby="zero-age-help">
-          <legend>檔案中的 0 代表何時？</legend>
+          <legend><span data-i18n="檔案中的 0 代表何時？">檔案中的 0 代表何時？</span></legend>
           <div class="zero-age-modes">
-            <label class="check"><input id="zero-age-single" type="radio" name="zero-age-mode" value="single" checked>已知年代</label>
-            <label class="check"><input id="zero-age-range" type="radio" name="zero-age-mode" value="range">年代範圍（取中點）</label>
+            <label class="check"><input id="zero-age-single" type="radio" name="zero-age-mode" value="single" checked><span data-i18n="已知年代">已知年代</span></label>
+            <label class="check"><input id="zero-age-range" type="radio" name="zero-age-mode" value="range"><span data-i18n="年代範圍（取中點）">年代範圍（取中點）</span></label>
           </div>
           <div id="zero-age-values">
-            <label><span id="zero-age-first-label">距今年代（Ma）</span><input id="zero-age" type="number" min="0" max="1000000000000000" step="any" value="0"></label>
-            <label id="zero-age-second-label" hidden>端點 B（Ma）<input id="zero-age-second" type="number" min="0" max="1000000000000000" step="any" disabled></label>
+            <label><span id="zero-age-first-label"><span data-i18n="距今年代（Ma）">距今年代（Ma）</span></span><input id="zero-age" type="number" min="0" max="1000000000000000" step="any" value="0"></label>
+            <label id="zero-age-second-label" hidden><span data-i18n="端點 B（Ma）">端點 B（Ma）</span><input id="zero-age-second" type="number" min="0" max="1000000000000000" step="any" disabled></label>
           </div>
-          <p id="zero-age-summary" class="hint" role="status">檔案中的 0＝現在（0 Ma）</p>
-          <p id="zero-age-help" class="hint">若 0 代表現在，填 0；若代表最年輕化石，填入該化石距今多少百萬年。</p>
+          <p id="zero-age-summary" class="hint" role="status"><span data-i18n="檔案中的 0＝現在（0 Ma）">檔案中的 0＝現在（0 Ma）</span></p>
+          <p id="zero-age-help" class="hint"><span data-i18n="若 0 代表現在，填 0；若代表最年輕化石，填入該化石距今多少百萬年。">若 0 代表現在，填 0；若代表最年輕化石，填入該化石距今多少百萬年。</span></p>
         </fieldset>
-        <p class="hint">套用時間模式時，全樹節點年代與既有 HPD／CredInt 年代區間會一起加上這個年代；不改變枝長，也不重新定年。</p>
-        <details id="evidence-settings"><summary>年代備註（選填）</summary>
-          <label>備註內容<textarea id="evidence" rows="8" maxlength="4000" placeholder="可記錄分析設定或單位來源，不影響繪圖"></textarea></label>
+        <p class="hint"><span data-i18n="套用時間模式時，全樹節點年代與既有 HPD／CredInt 年代區間會一起加上這個年代；不改變枝長，也不重新定年。">套用時間模式時，全樹節點年代與既有 HPD／CredInt 年代區間會一起加上這個年代；不改變枝長，也不重新定年。</span></p>
+        <details id="evidence-settings"><summary><span data-i18n="年代備註（選填）">年代備註（選填）</span></summary>
+          <label><span data-i18n="備註內容">備註內容</span><textarea id="evidence" rows="8" maxlength="4000" placeholder="可記錄分析設定或單位來源，不影響繪圖" data-i18n-placeholder="可記錄分析設定或單位來源，不影響繪圖"></textarea></label>
         </details>
-        <label id="root-status" hidden>輸入樹的根<select id="root-confirmed"><option value="unknown">尚未指定</option><option value="rooted">使用目前的根</option></select><span class="hint">檔案未記錄定根狀態；此選項不會重新定根。</span></label>
+        <label id="root-status" hidden><span data-i18n="輸入樹的根">輸入樹的根</span><select id="root-confirmed"><option value="unknown" data-i18n="尚未指定">尚未指定</option><option value="rooted" data-i18n="使用目前的根">使用目前的根</option></select><span class="hint"><span data-i18n="檔案未記錄定根狀態；此選項不會重新定根。">檔案未記錄定根狀態；此選項不會重新定根。</span></span></label>
         </div>
-        <div class="button-row"><button id="apply-time" class="primary" disabled>切換至節點年代模式（Node ages, Ma）</button><button id="general" disabled>切換至拓樸模式（Topology）</button></div>
+        <div class="button-row"><button id="apply-time" class="primary" hidden disabled><span data-i18n="重新分類">重新分類</span></button></div>
       </section>
-      <section><details id="style-settings"><summary><h2><span id="style-title">樹圖樣式</span></h2></summary>
-        <label>樹根外觀<select id="root-style"><option value="hollow">空心圓</option><option value="solid">實心圓</option></select></label>
-        <label class="check"><input id="root-stem" type="checkbox">顯示裝飾根幹</label>
-        <p class="hint">根幹以虛線表示，僅作裝飾，不代表時間長度。</p>
+      <section><details id="style-settings"><summary><h2><span id="style-title"><span data-i18n="樹圖樣式">樹圖樣式</span></span></h2></summary>
+        <label><span data-i18n="樹根外觀">樹根外觀</span><select id="root-style"><option value="hollow" data-i18n="空心圓">空心圓</option><option value="solid" data-i18n="實心圓">實心圓</option></select></label>
+        <label class="check"><input id="root-stem" type="checkbox"><span data-i18n="顯示裝飾根幹">顯示裝飾根幹</span></label>
+        <p class="hint"><span data-i18n="根幹以虛線表示，僅作裝飾，不代表時間長度。">根幹以虛線表示，僅作裝飾，不代表時間長度。</span></p>
         <div id="time-axis-settings">
-        <label>橫軸範圍<select id="time-range"><option value="auto">自動貼合樹的年代</option><option value="manual">手動指定範圍</option></select></label>
-        <p id="range-summary" class="hint">自動模式依全樹最老／最年輕年代保留少量邊界，不強制延伸至 0 Ma；Ma 比例仍為線性。</p>
-        <div class="two-col"><label>較老端（Ma）<input id="older" type="number" min="0" placeholder="自動"></label><label>較新端（Ma）<input id="younger" type="number" min="0" value="0"></label></div>
-        <label>主刻度間距（Ma，留白為自動）<input id="grid-step" type="number" min="0.000001" list="steps" placeholder="自動"><datalist id="steps"><option>0.1</option><option>0.5</option><option>1</option><option>5</option><option>10</option><option>20</option><option>50</option><option>100</option></datalist></label>
-        <div class="two-col"><label class="check"><input id="grid" type="checkbox" checked>主格線</label><label class="check"><input id="minor-grid" type="checkbox">次格線</label></div>
-        <div class="two-col"><label>格線顏色<input id="grid-color" type="color" value="#d1d5db"></label><label>格線不透明度<input id="grid-opacity" type="number" min="0" max="1" step="0.1" value="0.5"></label></div>
-        <label>年代標籤小數位<input id="decimals" type="number" min="0" max="6" step="1" value="2"></label>
+        <label><span data-i18n="橫軸範圍">橫軸範圍</span><select id="time-range"><option value="auto" data-i18n="自動貼合樹的年代">自動貼合樹的年代</option><option value="manual" data-i18n="手動指定範圍">手動指定範圍</option></select></label>
+        <p id="range-summary" class="hint"><span data-i18n="自動模式依全樹最老／最年輕年代保留少量邊界，不強制延伸至 0 Ma；Ma 比例仍為線性。">自動模式依全樹最老／最年輕年代保留少量邊界，不強制延伸至 0 Ma；Ma 比例仍為線性。</span></p>
+        <div class="two-col"><label><span data-i18n="較老端（Ma）">較老端（Ma）</span><input id="older" type="number" min="0" placeholder="自動" data-i18n-placeholder="自動"></label><label><span data-i18n="較新端（Ma）">較新端（Ma）</span><input id="younger" type="number" min="0" value="0"></label></div>
+        <label><span data-i18n="主刻度間距（Ma，留白為自動）">主刻度間距（Ma，留白為自動）</span><input id="grid-step" type="number" min="0.000001" list="steps" placeholder="自動" data-i18n-placeholder="自動"><datalist id="steps"><option>0.1</option><option>0.5</option><option>1</option><option>5</option><option>10</option><option>20</option><option>50</option><option>100</option></datalist></label>
+        <div class="two-col"><label class="check"><input id="grid" type="checkbox" checked><span data-i18n="主格線">主格線</span></label><label class="check"><input id="minor-grid" type="checkbox"><span data-i18n="次格線">次格線</span></label></div>
+        <div class="two-col"><label><span data-i18n="格線顏色">格線顏色</span><input id="grid-color" type="color" value="#d1d5db"></label><label><span data-i18n="格線不透明度">格線不透明度</span><input id="grid-opacity" type="number" min="0" max="1" step="0.1" value="0.5"></label></div>
+        <label><span data-i18n="年代標籤小數位">年代標籤小數位</span><input id="decimals" type="number" min="0" max="6" step="1" value="2"></label>
         </div>
-        <label>字級（px）<input id="font-size" type="number" min="8" max="32" value="13"></label>
-        <div class="two-col"><label>枝條顏色<input id="branch-color" type="color" value="#254b48"></label><label>枝條線寬<input id="line-width" type="number" min="0.5" max="6" step="0.5" value="1.5"></label></div>
-        <div class="two-col"><label class="check"><input id="names" type="checkbox" checked>節點名稱</label><label class="check"><input id="support" type="checkbox">支持度</label></div>
+        <label><span data-i18n="字級（px）">字級（px）</span><input id="font-size" type="number" min="8" max="32" value="13"></label>
+        <div class="two-col"><label><span data-i18n="枝條顏色">枝條顏色</span><input id="branch-color" type="color" value="#254b48"></label><label><span data-i18n="枝條線寬">枝條線寬</span><input id="line-width" type="number" min="0.5" max="6" step="0.5" value="1.5"></label></div>
+        <div class="two-col"><label class="check"><input id="names" type="checkbox" checked><span data-i18n="節點名稱">節點名稱</span></label><label class="check"><input id="support" type="checkbox"><span data-i18n="支持度">支持度</span></label></div>
         <div id="time-label-settings">
-        <div class="two-col"><label class="check"><input id="ages" type="checkbox" checked>節點年代</label><label class="check"><input id="all-tips" type="checkbox">包含 0 Ma 末端年代</label></div>
-        <label class="check"><input id="simplified" type="checkbox">簡化標籤</label>
-        <p class="hint">簡化時，已勾選的標籤僅保留末端名稱與選取節點資訊；點選節點可查看完整資料。</p>
+        <div class="two-col"><label class="check"><input id="ages" type="checkbox" checked><span data-i18n="節點年代">節點年代</span></label><label class="check"><input id="all-tips" type="checkbox"><span data-i18n="包含 0 Ma 末端年代">包含 0 Ma 末端年代</span></label></div>
+        <label class="check"><input id="simplified" type="checkbox"><span data-i18n="簡化標籤">簡化標籤</span></label>
+        <p class="hint"><span data-i18n="簡化時，已勾選的標籤僅保留末端名稱與選取節點資訊；點選節點可查看完整資料。">簡化時，已勾選的標籤僅保留末端名稱與選取節點資訊；點選節點可查看完整資料。</span></p>
         </div>
-        <p id="layout-help" class="hint">父節點保持置中，樹較高時可向下捲動。</p>
+        <p id="layout-help" class="hint"><span data-i18n="父節點保持置中，樹較高時可向下捲動。">父節點保持置中，樹較高時可向下捲動。</span></p>
       </details>
       </section>
     </aside>
-    <div id="resize-settings" class="pane-splitter" role="separator" aria-orientation="vertical" aria-label="調整左側窗格寬度" aria-controls="settings-pane" tabindex="0" title="拖曳調整左側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬"></div>
-    <section id="tree-workspace" class="workspace" aria-label="種系樹工作區">
+    <div id="resize-settings" class="pane-splitter" role="separator" aria-orientation="vertical" aria-label="調整左側窗格寬度" data-i18n-aria-label="調整左側窗格寬度" aria-controls="settings-pane" tabindex="0" title="拖曳調整左側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬" data-i18n-title="拖曳調整左側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬"></div>
+    <section id="tree-workspace" class="workspace" aria-label="種系樹工作區" data-i18n-aria-label="種系樹工作區">
       <div class="canvas-toolbar">
-        <div class="search"><input id="search" type="search" placeholder="搜尋分類群或節點 ID" aria-label="搜尋分類群或節點 ID"><button id="find" disabled>定位</button></div>
-        <div class="button-row"><button id="zoom-out" aria-label="縮小" disabled>−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="放大" disabled>＋</button><button id="fit" disabled>適合視窗</button></div>
-        <label class="sort-label">排序<select id="order"><option value="original">原始順序</option><option value="ascending">小群在上</option><option value="descending">大群在上</option></select></label>
+        <div class="search"><input id="search" type="search" placeholder="搜尋分類群或節點 ID" data-i18n-placeholder="搜尋分類群或節點 ID" aria-label="搜尋分類群或節點 ID" data-i18n-aria-label="搜尋分類群或節點 ID"><button id="find" disabled><span data-i18n="定位">定位</span></button></div>
+        <div class="button-row"><button id="zoom-out" aria-label="縮小" data-i18n-aria-label="縮小" disabled>−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="放大" data-i18n-aria-label="放大" disabled>＋</button><button id="fit" disabled><span data-i18n="適合視窗">適合視窗</span></button></div>
+        <label class="sort-label"><span data-i18n="排序">排序</span><select id="order"><option value="original" data-i18n="原始順序">原始順序</option><option value="ascending" data-i18n="小群在上">小群在上</option><option value="descending" data-i18n="大群在上">大群在上</option></select></label>
       </div>
-      <div id="canvas" tabindex="0" aria-label="樹畫布，滑鼠拖曳平移，Ctrl 加滾輪縮放">
-        <div id="empty"><p>拖曳樹檔至此，或按「開啟檔案」</p><p class="muted">MrBayes · NEXUS · Newick · NHX · PhyloXML · NeXML</p></div>
+      <div id="canvas" tabindex="0" aria-label="樹畫布，滑鼠拖曳平移，Ctrl 加滾輪縮放" data-i18n-aria-label="樹畫布，滑鼠拖曳平移，Ctrl 加滾輪縮放">
+        <div id="empty"><p><span data-i18n="拖曳樹檔至此，或按「開啟檔案」">拖曳樹檔至此，或按「開啟檔案」</span></p><p class="muted">MrBayes · NEXUS · Newick · NHX · PhyloXML · NeXML</p></div>
       </div>
       <footer class="export-bar">
-        <label>匯出範圍<select id="export-scope"><option value="full">全樹</option><option value="viewport">目前視窗</option></select></label>
-        <button id="svg" disabled>SVG</button><label>PNG 倍率<select id="png-scale"><option>1</option><option>2</option><option>3</option></select></label><button id="png" disabled>PNG</button>
-        <button id="csv" disabled>節點資料 CSV</button><button id="original" disabled>原始檔</button>
+        <label><span data-i18n="匯出範圍">匯出範圍</span><select id="export-scope"><option value="full" data-i18n="全樹">全樹</option><option value="viewport" data-i18n="目前視窗">目前視窗</option></select></label>
+        <button id="svg" disabled>SVG</button><label><span data-i18n="PNG 倍率">PNG 倍率</span><select id="png-scale"><option>1</option><option>2</option><option>3</option></select></label><button id="png" disabled>PNG</button>
+        <button id="csv" disabled><span data-i18n="節點資料 CSV">節點資料 CSV</span></button><button id="original" disabled><span data-i18n="原始檔">原始檔</span></button>
       </footer>
     </section>
-    <div id="resize-inspector" class="pane-splitter" role="separator" aria-orientation="vertical" aria-label="調整右側窗格寬度" aria-controls="inspector-pane" tabindex="0" title="拖曳調整右側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬"></div>
+    <div id="resize-inspector" class="pane-splitter" role="separator" aria-orientation="vertical" aria-label="調整右側窗格寬度" data-i18n-aria-label="調整右側窗格寬度" aria-controls="inspector-pane" tabindex="0" title="拖曳調整右側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬" data-i18n-title="拖曳調整右側窗格；方向鍵微調，Shift 加速，Home 最窄，End 最寬"></div>
     <aside id="inspector-pane" class="inspector">
-      <section><h2>節點資訊</h2><p class="hint">點選節點查看精確值；名稱及原始欄位不作改寫。</p><div id="node-info" class="details muted">尚未選取節點</div><button id="collapse" disabled>折疊／展開此分支</button><button id="expand-all" disabled>展開全部</button></section>
-      <section id="diagnostics-section" hidden><h2 id="diagnostics-title">年代來源檢核</h2><div id="diagnostics" class="diagnostics" aria-live="polite"></div></section>
-      <div class="research-note"><strong>研究資料不變</strong><p>排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。</p><span>phylotree.js 2.6.1 · PaleoTree 0.1.0</span></div>
+      <section><h2><span data-i18n="節點資訊">節點資訊</span></h2><p class="hint"><span data-i18n="點選節點查看精確值；名稱及原始欄位不作改寫。">點選節點查看精確值；名稱及原始欄位不作改寫。</span></p><div id="node-info" class="details muted"><span data-i18n="尚未選取節點">尚未選取節點</span></div><button id="collapse" disabled><span data-i18n="折疊／展開此分支">折疊／展開此分支</span></button><button id="expand-all" disabled><span data-i18n="展開全部">展開全部</span></button></section>
+      <section id="diagnostics-section" hidden><h2 id="diagnostics-title"><span data-i18n="年代來源檢核">年代來源檢核</span></h2><div id="diagnostics" class="diagnostics" aria-live="polite"></div></section>
+      <div class="research-note"><strong><span data-i18n="研究資料不變">研究資料不變</span></strong><p><span data-i18n="排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。">排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。</span></p><span>phylotree.js 2.6.1 · PaleoTree 0.2.0</span></div>
     </aside>
   </main>
   <template id="license-notices"><pre>/*PROJECT_LICENSE*/</pre><pre>/*APP_LICENSES*/</pre></template>

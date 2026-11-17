@@ -1,0 +1,15 @@
+#NEXUS
+[Phylogram: synthetic substitutions per site; NOT time.
+ Shared synthetic taxa: OTU01 through OTU15; shared strictly binary topology.
+ Internal prob values are random synthetic probabilities above 0.85 (85%),
+ for display testing only, NOT analysis results.
+ Root child distances: 0.3 and 0.2.
+ Tip distances: 0.4, 0.5, then 0.4 through 1.6 in steps of 0.1.]
+BEGIN TREES;
+  TREE phylogram = [&R]
+    ((OTU01:0.1,OTU02:0.2)[&prob=0.953]:0.3,
+     (((OTU03:0.18,OTU04:0.28)[&prob=0.992]:0.01,(OTU05:0.38,OTU06:0.48)[&prob=0.949]:0.01)[&prob=0.946]:0.01,
+      (((OTU07:0.57,OTU08:0.67)[&prob=0.854]:0.01,(OTU09:0.77,OTU10:0.87)[&prob=0.955]:0.01)[&prob=0.899]:0.01,
+       ((OTU11:0.97,OTU12:1.07)[&prob=0.898]:0.01,(OTU13:1.17,(OTU14:1.26,OTU15:1.36)[&prob=0.999]:0.01)[&prob=0.934]:0.01)[&prob=0.952]:0.01)[&prob=0.886]:0.01)[&prob=0.919]:0.2)
+      [&branch_length_unit=substitutions_per_site,prob=0.856];
+END;

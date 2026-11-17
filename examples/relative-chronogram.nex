@@ -1,0 +1,15 @@
+#NEXUS
+[Relative Chronogram: synthetic time durations without any absolute age anchor.
+ Root-to-tip distances alone do NOT prove time semantics; the annotation does.
+ Shared synthetic taxa: OTU01 through OTU15; shared strictly binary topology.
+ Internal prob values are random synthetic probabilities above 0.85 (85%),
+ for display testing only, NOT analysis results.
+ Root child distances: 20 and 10; all 15 tips are at distance 30.]
+BEGIN TREES;
+  TREE relative_chronogram = [&R]
+    ((OTU01:10,OTU02:10)[&prob=0.889]:20,
+     (((OTU03:10,OTU04:10)[&prob=0.936]:5,(OTU05:10,OTU06:10)[&prob=0.989]:5)[&prob=0.864]:5,
+      (((OTU07:5,OTU08:5)[&prob=0.916]:5,(OTU09:5,OTU10:5)[&prob=0.984]:5)[&prob=0.926]:5,
+       ((OTU11:5,OTU12:5)[&prob=0.949]:5,(OTU13:5,(OTU14:2,OTU15:2)[&prob=0.972]:3)[&prob=0.856]:5)[&prob=0.975]:5)[&prob=0.927]:5)[&prob=0.933]:10)
+      [&branch_length_unit=relative_time,prob=0.882];
+END;

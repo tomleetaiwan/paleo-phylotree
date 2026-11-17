@@ -1,4 +1,5 @@
 #NEXUS
+[Dated Tree: supplied node ages in Ma; the zero-age origin can be adjusted in the viewer.]
 [ID: 0415895980]
 begin taxa;
 	dimensions ntax=5;

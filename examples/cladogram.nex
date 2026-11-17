@@ -1,0 +1,14 @@
+#NEXUS
+[Cladogram: synthetic example for demonstration only, NOT a biological inference.
+ All taxa and relationships are fictional.
+ Shared synthetic taxa: OTU01 through OTU15; shared strictly binary topology.
+ Support values (prob) are fictional numbers for display only, not analysis results.
+ No node ages, time anchors, or branch lengths are supplied.
+ The rooted topology expresses relationships only, not elapsed time.]
+BEGIN TREES;
+  TREE fictional_cladogram = [&R]
+    ((OTU01,OTU02)[&prob=0.96],
+     (((OTU03,OTU04),(OTU05,OTU06)),
+      (((OTU07,OTU08),(OTU09,OTU10)),
+       ((OTU11,OTU12),(OTU13,(OTU14,OTU15)))))[&prob=0.92]);
+END;

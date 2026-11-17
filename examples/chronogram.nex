@@ -1,0 +1,22 @@
+#NEXUS
+[Chronogram: synthetic time durations with an absolute root age anchor.
+ For demonstration only, NOT a biological inference.
+ Root age: 100 Ma; branch lengths are elapsed time in millions of years.
+ Shared synthetic taxa: OTU01 through OTU15; shared strictly binary topology.
+ Expected tip ages in OTU order:
+ 20, 0, 35, 0, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60 Ma.]
+BEGIN TREES;
+  TRANSLATE
+    1 OTU01, 2 OTU02, 3 OTU03, 4 OTU04, 5 OTU05,
+    6 OTU06, 7 OTU07, 8 OTU08, 9 OTU09, 10 OTU10,
+    11 OTU11, 12 OTU12, 13 OTU13, 14 OTU14, 15 OTU15;
+  TREE time_branch_example = [&R]
+    ((1[&age_95%HPD={18,22},prob=0.98]:30,
+      2:50)
+      [&age_95%HPD={42,58},prob=0.96]:50,
+     (((3:5,4:40):10,(5:15,6:10):25):16,
+      (((7:10,8:5):10,(9:10,10:5):0):25,
+       ((11:10,12:5):14,(13:12,(14:5,15:0):2):2):1):1)
+      [&age_95%CredInt={60,72},prob=0.92]:34)
+      [&age_mean=100,age_95%HPD={90,110},branch_length_unit=Ma];
+END;

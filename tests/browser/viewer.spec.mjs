@@ -4,13 +4,14 @@ import { resolve } from "node:path";
 import { readFile } from "node:fs/promises";
 
 const url = pathToFileURL(resolve("dist", "paleo-phylotree.html")).href;
+test.use({ locale: "zh-TW" });
 async function upload(page, name, text) {
   await page.locator("#file").setInputFiles({ name, mimeType: "text/plain", buffer: Buffer.from(text) });
 }
 async function demoTime(page) {
-  await page.locator("#demo").selectOption("synthetic");
+  await page.locator("#demo").selectOption("chronogram");
   await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText("時間枝長模式（Time branches, Ma）");
+  await expect(page.locator("#mode-badge")).toHaveText("Chronogram");
 }
 async function fillEvidence(page, text) {
   if (!await page.locator("#evidence").isVisible()) await page.locator("#evidence-settings > summary").click();
@@ -38,6 +39,179 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }) => {
   expect(page.__errors).toEqual([]);
   expect(page.__requests).toEqual([]);
+});
+
+for (const [mode, filename, label, axis, distances] of [
+  ["dated", "dated-tree", "Dated Tree", "Age (Ma)", null],
+  ["chronogram", "chronogram", "Chronogram", "Age (Ma)", null],
+  ["relative", "relative-chronogram", "Relative Chronogram", "Relative time", Array(15).fill(30)],
+  ["phylogram", "phylogram", "Phylogram", "Branch length", [0.4, 0.5, ...Array.from({ length: 13 }, (_, i) => 0.4 + i * 0.1)]],
+  ["cladogram", "cladogram", "Cladogram", "Equal steps", null]
+]) {
+  test(`${label} automatically classifies, preserves its scale and exports offline`, async ({ page }, testInfo) => {
+    await expect(page.locator("#demo option")).toHaveText([
+      "選擇範例…", "dated-tree.nex", "chronogram.nex", "relative-chronogram.nex", "phylogram.nex", "cladogram.nex"
+    ]);
+    await page.locator("#demo").selectOption(mode);
+    await expect(page.locator("#mode-badge")).toHaveText(label);
+    const svg = page.locator("#canvas svg");
+    await expect(svg).toHaveAttribute("data-mode", mode);
+    await expect(svg.locator("[data-axis-title]")).toHaveText(axis);
+    await expect(svg).not.toContainText(/[\u3400-\u9fff]/u);
+    if (mode !== "dated") {
+      await expect(svg.locator('[data-label-kind="name"]')).toHaveText(
+        Array.from({ length: 15 }, (_, i) => `OTU${String(i + 1).padStart(2, "0")}`)
+      );
+      await expect(svg.locator('[data-layer="nodes"] > g')).toHaveCount(29);
+    }
+    const absolute = mode === "dated" || mode === "chronogram";
+    if (absolute) await expect(page.locator("#apply-time")).toBeVisible();
+    else {
+      await expect(page.locator("#apply-time")).toBeHidden();
+      await expect(page.locator("#apply-time")).toBeDisabled();
+    }
+    if (!absolute) {
+      await expect(svg).not.toContainText("Ma");
+      await expect(page.locator("[data-age-label]")).toHaveCount(0);
+    }
+    const geometry = await svg.evaluate(el => ({
+      xs: [...el.querySelectorAll('[data-layer="nodes"] > g > circle:first-child')].map(n => Number(n.getAttribute("cx"))),
+      tips: [...el.querySelectorAll('[data-layer="nodes"] > g[aria-label^="OTU"] > circle:first-child')].map(n => Number(n.getAttribute("cx"))),
+      edges: [...el.querySelectorAll('[data-layer="branches"] path')].map(path => {
+        const n = path.getAttribute("d").match(/M([^,]+),[^V]+V[^H]+H(.+)/);
+        return Number(n[2]) - Number(n[1]);
+      })
+    }));
+    if (distances) {
+      const max = Math.max(...distances), width = Math.max(...geometry.xs) - geometry.xs[0];
+      distances.forEach((value, i) => expect(geometry.tips[i] - geometry.xs[0]).toBeCloseTo(value / max * width, 5));
+    }
+    if (mode === "cladogram") {
+      for (const edge of geometry.edges) {
+        expect(edge).toBeGreaterThan(0);
+        expect(edge).toBeCloseTo(geometry.edges[0], 5);
+      }
+    }
+    const csv = await readFile(await download(page, "csv", testInfo, `${mode}.csv`), "utf8");
+    const [headers, ...rows] = csv.slice(1).split("\r\n").map(line =>
+      [...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(match => match[1].replaceAll('""', '"')));
+    for (const row of rows) {
+      expect(row).toHaveLength(headers.length);
+      expect(row[headers.indexOf("mode")]).toBe(mode);
+      expect(row[headers.indexOf("plot_age_Ma")] !== "").toBe(absolute);
+      expect(row[headers.indexOf("relative_time")] !== "").toBe(mode === "relative");
+    }
+    for (const scope of ["full", "viewport"]) {
+      await page.locator("#export-scope").selectOption(scope);
+      const exported = await readFile(await download(page, "svg", testInfo, `${mode}-${scope}.svg`), "utf8");
+      expect(exported).toContain(label);
+      if (!absolute) expect(exported).not.toContain("Ma");
+    }
+    const png = await readFile(await download(page, "png", testInfo, `${mode}.png`));
+    expect(png.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
+    const original = await readFile(await download(page, "original", testInfo, `${filename}.nex`), "utf8");
+    expect(original).toBe(await readFile(resolve("examples", `${filename}.nex`), "utf8"));
+    const saved = await download(page, "save", testInfo, `${mode}.json`);
+    const project = JSON.parse(await readFile(saved, "utf8"));
+    expect(project.schemaVersion).toBe(3);
+    expect(project.view.mode).toBe(mode);
+    await page.reload();
+    await page.locator("#file").setInputFiles(saved);
+    await expect(page.locator("#mode-badge")).toHaveText(label);
+    await expect(svg).toHaveAttribute("data-mode", mode);
+  });
+}
+
+for (const mode of ["relative", "phylogram", "cladogram"]) {
+  test(`${mode} spaces visible OTUs equally after styling, sorting and collapse`, async ({ page }, testInfo) => {
+    await page.locator("#demo").selectOption(mode);
+    const check = async svg => {
+      const geometry = await svg.evaluate(el => {
+        const nodes = [...el.querySelectorAll('[data-layer="nodes"] > g')].map(node => ({
+          id: node.getAttribute("data-node-id"),
+          x: Number(node.querySelector("circle").getAttribute("cx")),
+          y: Number(node.querySelector("circle").getAttribute("cy"))
+        }));
+        const edges = [...el.querySelectorAll('[data-layer="branches"] path')].map(edge => ({
+          parent: edge.getAttribute("data-parent-node"), child: edge.getAttribute("data-child-node")
+        }));
+        return { nodes, edges };
+      });
+      const tips = geometry.nodes.filter(n => !geometry.edges.some(e => e.parent === n.id)).sort((a, b) => a.y - b.y);
+      expect(tips.length).toBeGreaterThan(2);
+      const gap = tips[1].y - tips[0].y;
+      expect(gap).toBeGreaterThan(0);
+      for (let i = 2; i < tips.length; i++) expect(tips[i].y - tips[i - 1].y).toBeCloseTo(gap, 5);
+      for (const parent of geometry.nodes) {
+        const children = geometry.edges.filter(e => e.parent === parent.id)
+          .map(e => geometry.nodes.find(n => n.id === e.child)).sort((a, b) => a.y - b.y);
+        if (children.length) expect(parent.y).toBeCloseTo((children[0].y + children.at(-1).y) / 2, 5);
+      }
+      return Object.fromEntries(geometry.nodes.map(n => [n.id, n.x]));
+    };
+    const svg = page.locator("#canvas svg"), xs = await check(svg);
+    await page.locator("#font-size").fill("32");
+    await page.locator("#font-size").press("Tab");
+    await page.locator("#support").check();
+    expect(await check(svg)).toEqual(xs);
+    await page.locator("#order").selectOption("descending");
+    expect(await check(svg)).toEqual(xs);
+    await page.locator("#search").fill("t0-n1");
+    await page.locator("#find").click();
+    await page.locator("#collapse").click();
+    const collapsed = await check(svg);
+    for (const [id, x] of Object.entries(collapsed)) expect(x).toBe(xs[id]);
+    const exported = await readFile(await download(page, "svg", testInfo, `${mode}-spacing.svg`), "utf8");
+    const output = await page.context().newPage();
+    try {
+      await output.setContent(exported);
+      expect(await check(output.locator("svg"))).toEqual(collapsed);
+    } finally { await output.close(); }
+    await page.locator("#expand-all").click();
+    expect(await check(svg)).toEqual(xs);
+  });
+}
+
+test("unknown tip dates are dashed, never invented as zero and remain blank in CSV", async ({ page }, testInfo) => {
+  await upload(page, "unknown-tips.nex", "#NEXUS begin trees; tree x=[&R]((A,B)[&age=385],C)[&age=420]; end;");
+  await expect(page.locator("#mode-badge")).toHaveText("Dated Tree");
+  await expect(page.locator('[data-unknown-length="true"]')).toHaveCount(3);
+  await expect(page.locator('[data-age-label]:text-is("Age unknown")')).toHaveCount(3);
+  await expect(page.locator("#import-warnings")).toContainText("末端年代未知");
+  await page.locator("#search").fill("A");
+  await page.locator("#find").click();
+  await expect(page.locator("#node-info")).toContainText("Age unknown");
+  const csv = await readFile(await download(page, "csv", testInfo, "unknown-tips.csv"), "utf8");
+  const [headers, ...rows] = csv.slice(1).split("\r\n").map(line =>
+    [...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(match => match[1].replaceAll('""', '"')));
+  for (const row of rows.filter(row => row[headers.indexOf("is_tip")] === "true")) {
+    expect(row[headers.indexOf("plot_age_Ma")]).toBe("");
+  }
+  const exported = await readFile(await download(page, "svg", testInfo, "unknown-tips.svg"), "utf8");
+  expect(exported).toContain("Age unknown");
+  expect(exported).not.toMatch(/NaN|undefined/);
+});
+
+test("manual time evidence distinguishes relative durations and invalid anchors from generic branch lengths", async ({ page }) => {
+  await upload(page, "relative.tre", "[&R]((A:10,B:10):20,C:30);");
+  await expect(page.locator("#mode-badge")).toHaveText("Phylogram");
+  await page.locator("#branch-time").check();
+  await expect(page.locator("#mode-badge")).toHaveText("Relative Chronogram");
+  await expect(page.locator("#canvas svg")).not.toContainText("Ma");
+  await page.locator("#branch-time").uncheck();
+  await expect(page.locator("#mode-badge")).toHaveText("Phylogram");
+  await upload(page, "conflict.tre", "[&R]((A:10,B:10):20,C:30)[&root_age=-1,branch_length_unit=Ma];");
+  await expect(page.locator("#mode-badge")).toHaveText("Phylogram");
+  await expect(page.locator("#diagnostics")).toContainText("年代檢核未通過");
+  await expect(page.locator("#canvas svg")).not.toContainText("Ma");
+  for (const [text, xs] of [["[&R](A:0,B:0);", [0, 0, 0]], ["[&R](A:1,B);", null]]) {
+    await upload(page, "lengths.tre", text);
+    await expect(page.locator("#mode-badge")).toHaveText("Phylogram");
+    if (xs) {
+      const values = await page.locator('[data-layer="nodes"] > g > circle:first-child').evaluateAll(nodes => nodes.map(n => Number(n.getAttribute("cx"))));
+      expect(new Set(values).size).toBe(1);
+    } else await expect(page.locator("#import-warnings")).toContainText("缺少枝長");
+  }
 });
 
 test("side panes resize independently by dragging and keyboard without changing the open tree", async ({ page }) => {
@@ -85,7 +259,7 @@ test("side panes resize independently by dragging and keyboard without changing 
   await page.keyboard.press("End");
   expect((await widths()).center).toBeCloseTo(500, 0);
   expect(await page.locator("[data-age-label]").allTextContents()).toEqual(ages);
-  await expect(page.locator("#mode-badge")).toHaveText("時間枝長模式（Time branches, Ma）");
+  await expect(page.locator("#mode-badge")).toHaveText("Chronogram");
   await expect(page.locator("body")).not.toHaveClass(/resizing-panes/);
 });
 
@@ -129,239 +303,21 @@ test("brand loads the supplied PNG embedded in the offline HTML", async ({ page 
   await expect(page.getByRole("button", { name: "使用說明", exact: true })).toHaveCount(0);
 });
 
-test("example menu embeds dated trees and resets settings when switching or reloading an example", async ({ page }, testInfo) => {
-  await expect(page.locator("#demo option")).toHaveText([
-    "選擇範例…", "synthetic-time-branches.nex", "trilobites-node-ages.nex", "synthetic-topology.nex"
-  ]);
-  await page.getByLabel("載入範例").selectOption({ label: "trilobites-node-ages.nex" });
-  await expect(page.locator("#file-summary")).toContainText("trilobites-node-ages.nex");
-  await expect(page.locator('[data-layer="nodes"] > g')).toHaveCount(9);
-  await expect(page.locator("#zero-age")).toHaveValue("0");
-  await expect(page.locator("#evidence")).toHaveValue("");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  const original = await readFile(await download(page, "original", testInfo, "example-trilobites.tre"), "utf8");
-  expect(original).toBe(await readFile(resolve("examples", "trilobites-node-ages.nex"), "utf8"));
-  await page.locator("#zero-age").fill("385");
-  await page.locator("#apply-time").click();
-  await expect(page.locator('[data-age-label="t0-n4"]')).toHaveText("385 Ma");
-  await demoTime(page);
-  await expect(page.locator("#file-summary")).toContainText("synthetic-time-branches.nex");
-  await expect(page.locator("#method")).toHaveValue("auto");
-  await expect(page.locator("#source-status")).toContainText("已選用「時間枝長＋既有年代錨點」");
-  await expect(page.locator("#method-nodes")).toContainText("目前不可用");
-  await expect(page.locator("#method-branches")).toContainText("數值相容，請確認單位");
-  await expect(page.locator("#diagnostics details")).toHaveCount(0);
-  await expect(page.locator('[data-age-label="t0-n1"]')).toHaveText("50 Ma");
-  await expect(page.locator('[data-age-label="t0-n2"]')).toHaveText("20 Ma");
-  await expect(page.locator('[data-age-label="t0-n4"]')).toHaveText("66 Ma");
-  await expect(page.locator('[data-age-label="t0-n5"]')).toHaveText("35 Ma");
-  await expect(page.locator("#zero-age")).toHaveValue("0");
-  await expect(page.locator('[data-layer="nodes"] > g')).toHaveCount(7);
-  for (let i = 0; i < 2; i++) {
-    await page.getByLabel("載入範例").selectOption("trilobites");
-    await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-    await expect(page.locator("#method")).toHaveValue("auto");
-    await expect(page.locator("#source-status")).toContainText("已選用「明確節點年代」");
-    await expect(page.locator("#zero-age")).toHaveValue("0");
-    await expect(page.locator("#demo")).toHaveValue("");
-    await page.locator("#apply-time").click();
-    await expect(page.locator('[data-age-label="t0-n0"]')).toHaveText("115.34 Ma");
-  }
-});
-
-test("three explicit modes persist, export and allow a deliberate return to topology", async ({ page }, testInfo) => {
-  const checkCSV = async mode => {
-    const csv = await readFile(await download(page, "csv", testInfo, `${mode}-nodes.csv`), "utf8");
-    const [headers, ...rows] = csv.slice(1).split("\r\n").map(line =>
-      [...line.matchAll(/"((?:[^"]|"")*)"(?:,|$)/g)].map(match => match[1].replaceAll('""', '"')));
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) {
-      expect(row).toHaveLength(headers.length);
-      expect(row[headers.indexOf("mode")]).toBe(mode);
-      const age = row[headers.indexOf("plot_age_Ma")];
-      if (mode === "topology") expect(age).toBe("");
-      else expect(age).not.toBe("");
-    }
-  };
-  for (const [demo, mode, label] of [
-    ["synthetic", "branches", "時間枝長模式（Time branches, Ma）"],
-    ["trilobites", "nodes", "節點年代模式（Node ages, Ma）"],
-    ["cladogram", "topology", "拓樸模式（Topology）"]
-  ]) {
-    await page.locator("#demo").selectOption(demo);
-    if (mode !== "topology") {
-      await expect(page.locator("#apply-time")).toHaveText(`切換至${label}`);
-      await expect(page.locator("#source-status")).toContainText(`按「切換至${label}」`);
-      await page.locator("#apply-time").click();
-    }
-    await expect(page.locator("#mode-badge")).toHaveText(label);
-    await expect(page.locator("#source-status")).toContainText(label);
-    await expect(page.locator("#settings-pane")).not.toContainText("驗證並顯示 Ma");
-    await expect(page.locator("#canvas svg")).toHaveAttribute("data-mode", mode);
-    if (mode === "topology") {
-      await expect(page.locator("#diagnostics-section")).toBeHidden();
-      await expect(page.locator("#time-interpretation")).toBeHidden();
-    } else {
-      await expect(page.locator("#diagnostics-section")).toBeVisible();
-      await expect(page.locator("#diagnostics-title")).toHaveText(mode === "nodes" ? "節點年代診斷" : "時間枝長診斷");
-      await expect(page.locator("#general")).toHaveText("切換至拓樸模式（Topology）");
-      await expect(page.locator("#apply-time")).toHaveText(`重新套用${label}`);
-      await page.locator("#apply-time").click();
-      await expect(page.locator("#mode-badge")).toHaveText(label);
-      const checkButtons = async () => {
-        const layout = await page.locator(".button-row:has(#general)").evaluate(row => {
-          const bounds = row.getBoundingClientRect();
-          const boxes = [...row.children].filter(button => button.getClientRects().length)
-            .map(button => button.getBoundingClientRect());
-          return {
-            widths: boxes.map(box => box.width),
-            fits: boxes.every(box => box.left >= bounds.left - 1 && box.right <= bounds.right + 1)
-          };
-        });
-        expect(layout.fits).toBe(true);
-        expect(layout.widths).toHaveLength(2);
-        expect(layout.widths[0]).toBeCloseTo(layout.widths[1], 1);
-      };
-      await checkButtons();
-      await page.locator("#resize-settings").focus();
-      await page.keyboard.press("Home");
-      await checkButtons();
-    }
-    const saved = await download(page, "save", testInfo, `${mode}.json`);
-    const project = JSON.parse(await readFile(saved, "utf8"));
-    expect(project.schemaVersion).toBe(2);
-    expect(project.view.mode).toBe(mode);
-    await page.reload();
-    await page.locator("#file").setInputFiles(saved);
-    await expect(page.locator("#canvas svg")).toHaveAttribute("data-mode", mode);
-    await expect(page.locator("#mode-badge")).toHaveText(label);
-    if (mode !== "topology") await expect(page.locator("#apply-time")).toHaveText(`重新套用${label}`);
-    const svg = await readFile(await download(page, "svg", testInfo, `${mode}.svg`), "utf8");
-    expect(svg).toContain(`data-mode="${mode}"`);
-    expect(svg).not.toMatch(/[\u3400-\u9fff]/u);
-    await checkCSV(mode);
-  }
-  await demoTime(page);
-  await page.locator("#general").click();
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await expect(page.locator("[data-age-label]")).toHaveCount(0);
-  await expect(page.locator("#apply-time")).toBeEnabled();
-  await expect(page.locator("#apply-time")).toHaveText("切換至時間枝長模式（Time branches, Ma）");
-  await checkCSV("topology");
-  const saved = await download(page, "save", testInfo, "deliberate-topology.json");
-  await page.reload();
-  await page.locator("#file").setInputFiles(saved);
-  await expect(page.locator("#canvas svg")).toHaveAttribute("data-mode", "topology");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText("時間枝長模式（Time branches, Ma）");
-});
-
-test("undated cladogram example resets time mode and shows only fictional topology", async ({ page }, testInfo) => {
-  await demoTime(page);
-  await page.getByLabel("載入範例").selectOption("cladogram");
-  await expect(page.locator("#file-summary")).toContainText("synthetic-topology.nex");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await expect(page.locator("#source-status")).toContainText("不需設定年代");
-  await expect(page.locator("#diagnostics-section")).toBeHidden();
-  await expect(page.locator("#time-interpretation")).toBeHidden();
-  await expect(page.locator("#time-axis-settings")).toBeHidden();
-  await expect(page.locator("#time-label-settings")).toBeHidden();
-  await expect(page.locator("#style-title")).toHaveText("樹圖樣式");
-  await expect(page.locator("#mode-description")).toContainText("支序圖（Cladogram）");
-  await expect(page.locator("#canvas svg > title")).toContainText("Topology");
-  await expect(page.locator('[data-layer="nodes"] > g')).toHaveCount(11);
-  await expect(page.locator('[data-label-kind="name"]')).toHaveText([
-    "Fictional taxon A", "Fictional taxon B", "Fictional taxon C",
-    "Fictional taxon D", "Fictional taxon E", "Fictional taxon F"
-  ]);
-  const tipXs = await page.locator('[data-layer="nodes"] > g[aria-label^="Fictional taxon"] > circle:first-child')
-    .evaluateAll(nodes => nodes.map(node => Number(node.getAttribute("cx"))));
-  expect(tipXs).toHaveLength(6);
-  expect(new Set(tipXs).size).toBe(1);
-  const labelXs = await page.locator('[data-label-kind="name"]')
-    .evaluateAll(labels => labels.map(label => Number(label.getAttribute("x"))));
-  expect(new Set(labelXs).size).toBe(1);
-  const checkSpacing = async () => {
-    const ys = await page.locator('[data-layer="nodes"] > g[aria-label^="Fictional taxon"] > circle:first-child')
-      .evaluateAll(nodes => nodes.map(node => Number(node.getAttribute("cy"))));
-    expect(ys).toHaveLength(6);
-    const gap = ys[1] - ys[0];
-    expect(gap).toBeGreaterThan(0);
-    for (let i = 2; i < ys.length; i++) expect(ys[i] - ys[i - 1]).toBeCloseTo(gap, 5);
-  };
-  await checkSpacing();
-  for (const id of ["method", "age-field", "root-confirmed", "zero-age-single", "zero-age-range", "zero-age", "zero-age-second", "evidence", "apply-time", "time-range", "older", "younger", "grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "ages", "all-tips", "simplified"]) {
-    await expect(page.locator(`#${id}`)).toBeDisabled();
-  }
-  for (const id of ["font-size", "line-width", "branch-color", "names", "support", "root-style", "root-stem"]) {
-    await expect(page.locator(`#${id}`)).toBeEnabled();
-  }
-  await page.locator("#support").check();
-  await expect(page.locator('[data-label-kind="support"]')).toHaveText([
-    "Support: 0.96", "Support: 0.9", "Support: 0.88", "Support: 0.99"
-  ]);
-  await expect(page.locator("#canvas svg")).not.toContainText("Ma");
-  await checkSpacing();
-  await page.locator("#search").fill("t0-n1");
-  await page.locator("#find").click();
-  await expect(page.locator("#node-info")).toContainText("0.96");
-  await page.locator("#font-size").fill("32");
-  await page.locator("#font-size").press("Tab");
-  await page.locator("#order").selectOption("ascending");
-  await checkSpacing();
-  await expect(page.locator("[data-age-label]")).toHaveCount(0);
-  await expect(page.locator("#zero-age")).toHaveValue("0");
-  await expect(page.locator("#evidence")).toHaveValue("");
-  await page.locator("#search").fill("Fictional taxon A");
-  await page.locator("#find").click();
-  await expect(page.locator("#node-info")).toContainText("Fictional taxon A");
-  await expect(page.locator("#node-info dl")).not.toContainText("年代");
-  await expect(page.locator("#node-info")).not.toContainText("Ma");
-  const original = await readFile(await download(page, "original", testInfo, "synthetic-topology.nex"), "utf8");
-  expect(original).toBe(await readFile(resolve("examples", "synthetic-topology.nex"), "utf8"));
-  const svg = await readFile(await download(page, "svg", testInfo, "cladogram.svg"), "utf8");
-  expect(svg).toContain("Support: 0.96");
-  expect(svg).toContain("Support: 0.99");
-  expect(svg).not.toContain("data-age-label");
-  const saved = await download(page, "save", testInfo, "cladogram-project.json");
-  await page.reload();
-  await page.locator("#file").setInputFiles(saved);
-  await expect(page.locator("#file-summary")).toContainText("synthetic-topology.nex");
-  await expect(page.locator("#apply-time")).toBeDisabled();
-  await expect(page.locator("#diagnostics-section")).toBeHidden();
-  await expect(page.locator("#time-interpretation")).toBeHidden();
-  await expect(page.locator("#support")).toBeChecked();
-  await expect(page.locator('[data-label-kind="support"]')).toHaveCount(4);
-  await expect(page.locator("#mode-description")).toContainText("支序圖（Cladogram）");
-  await checkSpacing();
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await expect(page.locator("[data-age-label]")).toHaveCount(0);
-  await demoTime(page);
-  await expect(page.locator("#diagnostics-title")).toHaveText("時間枝長診斷");
-  await expect(page.locator("#diagnostics-section")).toBeVisible();
-  await expect(page.locator("#time-interpretation")).toBeVisible();
-  await expect(page.locator("#style-title")).toHaveText("時間軸與樣式");
-  for (const id of ["method", "age-field", "zero-age", "evidence", "apply-time", "time-range", "grid-step", "ages"]) {
-    await expect(page.locator(`#${id}`)).toBeEnabled();
-  }
-});
-
 test("tree annotations stay English and omit instructional text in every mode", async ({ page }) => {
   const svg = page.locator("#canvas svg");
-  for (const demo of ["synthetic", "trilobites", "cladogram"]) {
+  for (const demo of ["chronogram", "dated", "relative", "phylogram", "cladogram"]) {
     await page.locator("#demo").selectOption(demo);
-    const time = demo !== "cladogram";
+    const time = demo === "chronogram" || demo === "dated";
     if (time) await page.locator("#apply-time").click();
     await page.locator("#support").check();
     await page.locator("#root-stem").check();
     await expect(svg).not.toContainText(/[\u3400-\u9fff]/u);
-    await expect(page.locator("#canvas svg > text")).toHaveCount(time ? 3 : 1);
+    await expect(page.locator("#canvas svg > text")).toHaveCount(time ? 3 : 2);
     if (time) {
       await expect(svg.locator('[data-axis-title="time"]')).toHaveText("Age (Ma)");
       await expect(svg.locator(":scope > text").last()).toHaveText(/^Age range: [\d.]+–[\d.]+ Ma$/);
     }
-    if (demo === "synthetic") {
+    if (demo === "chronogram") {
       await expect(svg.locator('[data-label-kind="support"]').first()).toHaveText(/^Support: /);
       await page.locator("#simplified").check();
       await expect(page.locator("#canvas svg > text")).toHaveCount(3);
@@ -374,8 +330,8 @@ test("tree annotations stay English and omit instructional text in every mode", 
   }
   await upload(page, "original-branches.tre", "[&R](A:1,B:2);");
   await expect(page.locator("#file-summary")).toContainText("original-branches.tre");
-  await expect(page.locator("#canvas svg > text")).toHaveCount(1);
-  await expect(svg.locator(":scope > title")).toContainText("Original branch lengths");
+  await expect(page.locator("#canvas svg > text")).toHaveCount(2);
+  await expect(svg.locator(":scope > title")).toContainText("Branch length");
   await expect(svg).not.toContainText(/[\u3400-\u9fff]/u);
 });
 
@@ -385,51 +341,11 @@ test("topology keeps import warnings visible without showing age diagnostics", a
   await expect(page.locator("#diagnostics-section")).toBeHidden();
   await expect(page.locator("#import-warnings")).toBeVisible();
   await expect(page.locator("#import-warnings")).toContainText("重複末端名稱");
-  await expect(page.locator("#notice")).toContainText("不需設定年代");
+  await expect(page.locator("#notice")).toContainText("Cladogram");
   await upload(page, "broken.tre", "(A,");
   await expect(page.locator("#notice")).toHaveClass("error");
   await expect(page.locator("#file-summary")).toContainText("duplicate-tips.tre");
   await expect(page.locator("#import-warnings")).toBeVisible();
-});
-
-test("topology ignores hidden time controls and restores them only after verification", async ({ page }) => {
-  await demoTime(page);
-  await page.locator("#support").check();
-  await page.locator("#simplified").check();
-  await page.locator("#grid-step").fill("0");
-  await page.locator("#grid-step").press("Tab");
-  await expect(page.locator("#notice")).toHaveClass("error");
-  await expect(page.locator("#notice")).toContainText("主刻度間距");
-  await expect(page.locator("#notice")).not.toContainText("grid-step");
-  await page.locator("#general").click();
-  await expect(page.locator("#time-axis-settings")).toBeHidden();
-  await expect(page.locator("#time-label-settings")).toBeHidden();
-  await expect(page.locator("#time-range")).toBeDisabled();
-  await expect(page.locator("#diagnostics-section")).toBeVisible();
-  await expect(page.locator("#diagnostics-title")).toHaveText("年代來源檢核");
-  await expect(page.locator("#source-status")).toContainText("尚未切換至時間模式");
-  await expect(page.locator('[data-label-kind="support"]')).not.toHaveCount(0);
-  await expect(page.locator("#canvas")).not.toContainText("簡化模式");
-  await page.locator("#search").fill("t0-n0");
-  await page.locator("#find").click();
-  await expect(page.locator("#node-info dl")).not.toContainText("年代");
-  await page.locator("#font-size").fill("20");
-  await page.locator("#font-size").press("Tab");
-  await expect(page.locator("#notice")).not.toHaveClass("error");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText("時間枝長模式（Time branches, Ma）");
-  await expect(page.locator("#time-axis-settings")).toBeVisible();
-  await expect(page.locator("#time-range")).toBeEnabled();
-  await expect(page.locator("#grid-step")).toHaveValue("");
-  await expect(page.locator("#simplified")).toBeChecked();
-  await expect(page.locator("#node-info dl")).toContainText("距今年代");
-  await upload(page, "incomplete-ages.tre", "[&R](A,B)[&age_mean=100];");
-  await expect(page.locator("#file-summary")).toContainText("incomplete-ages.tre");
-  await expect(page.locator("#diagnostics-section")).toBeVisible();
-  await expect(page.locator("#diagnostics")).toContainText("年代檢核未通過");
-  await expect(page.locator("#time-interpretation")).toBeVisible();
-  await expect(page.locator("#age-field")).toBeEnabled();
-  await expect(page.locator("#time-axis-settings")).toBeHidden();
 });
 
 test("style settings start collapsed and toggle without changing the configured chart", async ({ page }) => {
@@ -454,7 +370,7 @@ test("style settings start collapsed and toggle without changing the configured 
 });
 
 test("age notes start collapsed, expand for editing and survive project restoration", async ({ page }, testInfo) => {
-  await page.locator("#demo").selectOption("trilobites");
+  await page.locator("#demo").selectOption("dated");
   const notes = page.locator("#evidence-settings"), field = page.locator("#evidence");
   const expectButtonSpacing = async () => {
     const gap = await notes.evaluate(el =>
@@ -482,14 +398,14 @@ test("age notes start collapsed, expand for editing and survive project restorat
   await page.locator("#apply-time").click();
   await notes.locator("summary").click();
   await expect(field).toBeHidden();
-  await expect(page.locator("#mode-badge")).toHaveText("節點年代模式（Node ages, Ma）");
+  await expect(page.locator("#mode-badge")).toHaveText("Dated Tree");
   const saved = await download(page, "save", testInfo, "age-notes.json");
   await page.reload();
   await page.locator("#file").setInputFiles(saved);
-  await expect(page.locator("#file-summary")).toContainText("trilobites-node-ages.nex");
+  await expect(page.locator("#file-summary")).toContainText("dated-tree.nex");
   await expect(notes).not.toHaveAttribute("open");
   await expect(field).toHaveValue(text);
-  await expect(page.locator("#mode-badge")).toHaveText("節點年代模式（Node ages, Ma）");
+  await expect(page.locator("#mode-badge")).toHaveText("Dated Tree");
   await notes.locator("summary").click();
   await expect(field).toBeVisible();
   await expect(field).toHaveValue(text);
@@ -629,7 +545,7 @@ test("SVG, PNG, CSV and original downloads work offline", async ({ page }, testI
   expect(csv).toContain("raw_age_key");
   expect(csv).toContain("age_mean");
   const original = await readFile(await download(page, "original", testInfo, "source.nex"), "utf8");
-  expect(original).toBe(await readFile(resolve("examples", "synthetic-time-branches.nex"), "utf8"));
+  expect(original).toBe(await readFile(resolve("examples", "chronogram.nex"), "utf8"));
   await page.locator("#export-scope").selectOption("viewport");
   await page.locator("#zoom-in").click();
   await page.locator("#canvas").evaluate(el => { el.scrollTop = 100; });
@@ -654,44 +570,13 @@ test("project restores age provenance, selection, grid and collapse", async ({ p
   const saved = await download(page, "save", testInfo, "project.json");
   await page.reload();
   await page.locator("#file").setInputFiles(saved);
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await expect(page.locator("#node-info")).toContainText("t0-n1");
   await expect(page.locator("#method")).toHaveValue("auto");
   await expect(page.locator("#canvas")).toContainText("Collapsed: 2 tips");
   await expect(page.locator("#grid-step")).toHaveValue("10");
   await page.locator("#expand-all").click();
-  await expect(page.locator('[data-layer="nodes"] > g')).toHaveCount(7);
-});
-
-test("switching trees never carries age settings into an unrooted tree", async ({ page }) => {
-  await demoTime(page);
-  await expect(page.locator("#mode-description")).not.toContainText(/Phylogram|Cladogram/);
-  await page.locator("#tree").selectOption("1");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await expect(page.locator("#mode-description")).toContainText("種系發生圖（Phylogram）");
-  await expect(page.locator("#root-status")).toBeHidden();
-  await expect(page.locator("#apply-time")).toBeDisabled();
-  await expect(page.locator("#diagnostics-section")).toBeHidden();
-  await expect(page.locator("#tree-stats")).toContainText("標記為未定根");
-  await expect(page.locator("[data-age-label]")).toHaveCount(0);
-  await page.locator("#tree").selectOption("0");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-description")).not.toContainText(/Phylogram|Cladogram/);
-});
-
-test("incomplete or all-zero branch lengths are identified as a cladogram layout", async ({ page }) => {
-  for (const [name, text] of [
-    ["partial-lengths.tre", "[&R](A:1,B);"],
-    ["zero-lengths.tre", "[&R](A:0,B:0);"]
-  ]) {
-    await upload(page, name, text);
-    await expect(page.locator("#file-summary")).toContainText(name);
-    await expect(page.locator("#mode-description")).toContainText("支序圖（Cladogram）");
-    const tipXs = await page.locator('[data-node-id="t0-n1"] circle:first-child, [data-node-id="t0-n2"] circle:first-child')
-      .evaluateAll(tips => tips.map(tip => Number(tip.getAttribute("cx"))));
-    expect(tipXs).toHaveLength(2);
-    expect(tipXs[0]).toBe(tipXs[1]);
-  }
+  await expect(page.locator('[data-layer="nodes"] > g')).toHaveCount(29);
 });
 
 test("age controls need no notes or checkbox and only prompt for an unknown root", async ({ page }, testInfo) => {
@@ -701,26 +586,28 @@ test("age controls need no notes or checkbox and only prompt for an unknown root
   await expect(page.locator("#root-status")).toBeHidden();
   await expect(page.locator("#evidence")).toHaveValue("");
   await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await fillEvidence(page, "Optional provenance");
   await page.locator("#evidence").press("Tab");
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await upload(page, "unknown.tre", tree);
   await expect(page.locator("#root-status")).toBeVisible();
   await expect(page.locator("#root-confirmed")).toHaveValue("unknown");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+  await expect(page.locator("#apply-time")).toBeHidden();
+  await expect(page.locator("#mode-badge")).toHaveText("Cladogram");
   await expect(page.locator("#diagnostics")).toContainText("使用目前的根");
   await page.locator("#root-confirmed").selectOption("rooted");
+  await expect(page.locator("#apply-time")).toBeVisible();
   await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   const saved = await download(page, "save", testInfo, "unknown-root.json");
   await page.reload();
   await page.locator("#file").setInputFiles(saved);
   await expect(page.locator("#root-confirmed")).toHaveValue("rooted");
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await page.locator("#root-confirmed").selectOption("unknown");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+  await expect(page.locator("#apply-time")).toBeHidden();
+  await expect(page.locator("#mode-badge")).toHaveText("Cladogram");
   await upload(page, "another.tre", tree);
   await expect(page.locator("#root-confirmed")).toHaveValue("unknown");
 });
@@ -735,8 +622,8 @@ test("corrupt files and unsafe XML preserve the open project", async ({ page }) 
   ]) {
     await upload(page, name, text);
     await expect(page.locator("#notice")).toHaveClass("error");
-    await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-    await expect(page.locator('[data-layer="nodes"] > g')).toHaveCount(7);
+    await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
+    await expect(page.locator('[data-layer="nodes"] > g')).toHaveCount(29);
   }
 });
 
@@ -744,6 +631,7 @@ const phyloxml = `<phyloxml xmlns="http://www.phyloxml.org"><phylogeny rooted="t
 const nexml = `<nex:nexml xmlns:nex="http://www.nexml.org/2009" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><nex:otus id="o"><nex:otu id="oa" label="Fossil"/><nex:otu id="ob" label="Recent"/></nex:otus><nex:trees otus="o"><nex:tree id="t" label="NeXML tree"><nex:node id="r" root="true"><nex:meta property="age_mean" content="100"/></nex:node><nex:node id="a" otu="oa"><nex:meta property="age_mean" content="20"/></nex:node><nex:node id="b" otu="ob"><nex:meta property="age_mean" content="0"/></nex:node><nex:edge id="e1" source="r" target="a" length="80"/><nex:edge id="e2" source="r" target="b" length="100"/></nex:tree></nex:trees></nex:nexml>`;
 for (const [name, text] of [
   ["plain.nwk", "((A:1e-15,B:2e-15):3e-15,C:4e-15);"],
+  ["tiny.nwk", "[&R](A:1e-300,B:2e-300);"],
   ["hyphy.tre", "(A{Foreground}:1,B:2);"],
   ["nhx.nhx", "(A[&&NHX:S=fish:D=Y]:1,B:2);"],
   ["beast.tre", "[&R](A[&height=0]:10,B[&height=2]:8)[&height=10];"],
@@ -754,7 +642,7 @@ for (const [name, text] of [
     await upload(page, name, text);
     await expect(page.locator("#notice")).toHaveClass("success");
     await expect(page.locator('[data-layer="nodes"] > g')).not.toHaveCount(0);
-    await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+    await expect(page.locator("#mode-badge")).toHaveText(name === "beast.tre" || name.endsWith("xml") ? "Dated Tree" : "Phylogram");
     if (name === "plain.nwk") {
       const span = await page.locator('[data-layer="nodes"] > g > circle:first-child').evaluateAll(nodes => {
         const xs = nodes.map(n => Number(n.getAttribute("cx")));
@@ -769,7 +657,7 @@ for (const [name, text] of [
     if (name.endsWith("xml")) {
       await fillEvidence(page, "Synthetic XML: age_mean is Ma before present");
       await page.locator("#apply-time").click();
-      await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+      await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
     }
   });
 }
@@ -801,137 +689,18 @@ test("UTF-8 BOM original content survives export and invalid settings preserve c
   await page.locator("#grid-step").fill("0.00001");
   await page.locator("#grid-step").press("Tab");
   await expect(page.locator("#notice")).toHaveClass("error");
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await expect(page.locator("[data-age-label]")).not.toHaveCount(0);
-});
-
-test("automatic sources preserve auto and manual projects and reject missing settings", async ({ page }, testInfo) => {
-  await page.reload();
-  await expect(page.locator("#method")).toBeHidden();
-  await upload(page, "anchor.tre", "[&R](A:100,B:80)[&age_mean=100];");
-  await expect(page.locator("#source-status")).toContainText("已選用「時間枝長＋既有年代錨點」");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-  const saved = await download(page, "save", testInfo, "automatic.json");
-  const project = JSON.parse(await readFile(saved, "utf8"));
-  expect(project.options.autoMethod).toBe(true);
-  expect(project.options.method).toBe("branches");
-  await page.reload();
-  await page.locator("#file").setInputFiles(saved);
-  await expect(page.locator("#method")).toHaveValue("auto");
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-  await page.locator("#source-settings > summary").click();
-  await page.locator("#method").selectOption("nodes");
-  await expect(page.locator("#source-status")).toContainText("手動指定：明確節點年代");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  const manual = await download(page, "save", testInfo, "manual.json");
-  await page.reload();
-  await page.locator("#file").setInputFiles(manual);
-  await expect(page.locator("#method")).toHaveValue("nodes");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  const incomplete = JSON.parse(await readFile(manual, "utf8"));
-  delete incomplete.options.autoMethod;
-  await upload(page, "incomplete-project.json", JSON.stringify(incomplete));
-  await expect(page.locator("#notice")).toHaveClass("error");
-  await expect(page.locator("#notice")).toContainText("年代設定無效");
-  await expect(page.locator("#method")).toHaveValue("nodes");
-  await expect(page.locator("#source-status")).toContainText("手動指定：明確節點年代");
-  await page.locator("#source-settings > summary").click();
-  await page.locator("#method").selectOption("auto");
-  await expect(page.locator("#source-status")).toContainText("已選用「時間枝長＋既有年代錨點」");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-  await upload(page, "complete.tre", "[&R](A[&age_mean=0]:100,B[&age_mean=20]:80)[&age_mean=100,age_median=100];");
-  await expect(page.locator("#source-status")).toContainText("已選用「明確節點年代」");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-  await page.locator("#age-field").selectOption("age_median");
-  await expect(page.locator("#source-status")).toContainText("已選用「時間枝長＋既有年代錨點」");
-  await expect(page.locator("#method")).toHaveValue("auto");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-  await page.locator("#age-field").selectOption("age_mean");
-  await expect(page.locator("#source-status")).toContainText("已選用「明確節點年代」");
-  await upload(page, "incomplete.tre", "[&R](A:10,B:20);");
-  await expect(page.locator("#source-status")).toContainText("不需設定年代");
-  await expect(page.locator("#apply-time")).toBeDisabled();
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-});
-
-test("source summary hides unused branch failures and explains manual switching", async ({ page }) => {
-    await page.locator("#source-settings > summary").click();
-    await page.locator("#demo").selectOption("trilobites");
-    await expect(page.locator("#method")).toHaveValue("auto");
-    await expect(page.locator("#method-nodes")).toHaveText("明確節點年代（可用）");
-    await expect(page.locator("#method-branches")).toContainText("數值不相容或資料不足");
-    await expect(page.locator("#source-status")).toContainText("age_mean");
-    await expect(page.getByText("Ma：距今百萬年，例如 100 Ma＝距今 1 億年。", { exact: true })).toBeVisible();
-    await expect(page.locator("#settings-pane")).not.toContainText("其他單位請先換算為 Ma 再匯入");
-    await expect(page.locator("#source-status")).not.toContainText(/時間單位|演化替換數/);
-    await expect(page.locator("#source-status")).toContainText("已選用「明確節點年代」");
-    await expect(page.locator("#source-status")).toContainText("進階：年代來源");
-    await expect(page.locator("#source-status")).not.toContainText(/矛盾|數值不相容|建議使用/);
-    await expect(page.locator("#source-comparison")).toBeHidden();
-    await expect(page.locator("#source-comparison")).toContainText("既有年代錨點與時間枝長矛盾");
-    await expect(page.locator("#diagnostics")).not.toContainText("矛盾");
-    await page.locator("#apply-time").click();
-    await expect(page.locator("#mode-badge")).toHaveText("節點年代模式（Node ages, Ma）");
-    await expect(page.locator("#source-status")).not.toContainText(/矛盾|數值不相容/);
-    await page.locator("#source-settings > summary").click();
-    await expect(page.locator("#source-comparison")).toBeVisible();
-    await page.locator("#method").selectOption("branches");
-    await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-    await expect(page.locator("#apply-time")).toHaveText("切換至時間枝長模式（Time branches, Ma）");
-    await page.locator("#apply-time").click();
-    await expect(page.locator("#notice")).toContainText("未切換至時間枝長模式（Time branches, Ma）");
-    await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-    await expect(page.locator("#diagnostics > p.problem")).toHaveCount(1);
-    await expect(page.locator("#diagnostics > p.problem")).toContainText("將「來源選擇」改為「明確節點年代」");
-    await expect(page.locator("#diagnostics details")).not.toHaveAttribute("open");
-    await expect(page.locator("#diagnostics details p").first()).toBeHidden();
-    await page.locator("#diagnostics summary").click();
-    await expect(page.locator("#diagnostics details p").first()).toBeVisible();
-    await page.locator("#age-field").selectOption("age_median");
-    await expect(page.locator("#source-status")).toContainText("age_median");
-    await expect(page.locator("#method")).toHaveValue("branches");
-    await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-    await page.locator("#method").selectOption("nodes");
-    await page.locator("#apply-time").click();
-    await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-    await expect(page.locator("#diagnostics details")).toHaveCount(0);
-});
-
-test("source preflight distinguishes derivable ages from missing anchors without assuming time units", async ({ page }) => {
-  await upload(page, "compatible.tre", "[&R]((A:50,B:30):50,C:100)[&age_mean=100];");
-  await expect(page.locator("#method-nodes")).toContainText("目前不可用");
-  await expect(page.locator("#method-branches")).toContainText("數值相容，請確認單位");
-  await expect(page.locator("#source-status")).toContainText("枝長必須代表時間間隔，不能直接使用演化替換數");
-  await expect(page.locator("#method")).toHaveValue("auto");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
-  await page.locator("#method").selectOption("branches");
-  await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
-  await upload(page, "no-anchor.tre", "[&R]((A:50,B:30):50,C:100);");
-  await expect(page.locator("#source-status")).toContainText("沒有年代欄位");
-  await expect(page.locator("#source-comparison")).toBeEmpty();
-  await expect(page.locator("#diagnostics-section")).toBeHidden();
-  await expect(page.locator("#method-branches")).toContainText("資料不足");
-  await upload(page, "unknown-root.tre", "(A:50,B:30)[&age_mean=50];");
-  await expect(page.locator("#method-branches")).toContainText("定根條件未滿足");
-  await page.locator("#root-confirmed").selectOption("rooted");
-  await expect(page.locator("#method-branches")).toContainText("數值相容，請確認單位");
 });
 
 test("time branches use fixed Ma and unsupported project units cannot replace the open chart", async ({ page }, testInfo) => {
   await upload(page, "branches.tre", "[&R]((A:50,B:30):50,C:100)[&age_mean=100]:999;");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+  await expect(page.locator("#mode-badge")).toHaveText("Phylogram");
   await page.locator("#method").selectOption("branches");
+  await page.locator("#branch-time").check();
   await fillEvidence(page, "Synthetic: Ma time branches with a 100 Ma root anchor.");
   await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await expect(page.locator('[data-age-label="t0-n3"]')).toHaveText("20 Ma");
   await expect(page.locator("#unit")).toHaveCount(0);
   const saved = await download(page, "save", testInfo, "fixed-ma.json");
@@ -943,20 +712,20 @@ test("time branches use fixed Ma and unsupported project units cannot replace th
     }));
     await expect(page.locator("#notice")).toHaveClass("error");
     await expect(page.locator("#notice")).toContainText("固定使用 Ma");
-    await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+    await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
     await expect(page.locator('[data-age-label="t0-n3"]')).toHaveText("20 Ma");
   }
 });
 
 test("fossil zero correction shifts real MrBayes data and survives exports and restore", async ({ page }, testInfo) => {
-  const file = resolve("examples", "trilobites-node-ages.nex");
+  const file = resolve("examples", "dated-tree.nex");
   await page.locator("#file").setInputFiles(file);
-  await expect(page.locator("#file-summary")).toContainText("trilobites-node-ages.nex");
+  await expect(page.locator("#file-summary")).toContainText("dated-tree.nex");
   await expect(page.locator("#zero-range-enabled, #zero-younger, #zero-older")).toHaveCount(0);
   await page.locator("#zero-age").fill("380");
   await fillEvidence(page, "Technical regression only: illustrative fossil zero=380 Ma, not a scientific calibration.");
   await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await page.locator("#search").fill("Phacops");
   await page.locator("#find").click();
   await expect(page.locator("#node-info")).toContainText("380");
@@ -972,25 +741,25 @@ test("fossil zero correction shifts real MrBayes data and survives exports and r
   expect(original).toBe(await readFile(file, "utf8"));
   const saved = await download(page, "save", testInfo, "corrected.json");
   const project = JSON.parse(await readFile(saved, "utf8"));
-  expect(project.schemaVersion).toBe(2);
+  expect(project.schemaVersion).toBe(3);
   await upload(page, "old-project.json", JSON.stringify({ ...project, schemaVersion: 1 }));
   await expect(page.locator("#notice")).toContainText("不支援的專案格式或版本");
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await expect(page.locator('[data-age-label="t0-n4"]')).toHaveText("380 Ma");
   await page.reload();
   await page.locator("#file").setInputFiles(saved);
   await expect(page.locator("#zero-age")).toHaveValue("380");
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await expect(page.locator('[data-age-label="t0-n4"]')).toHaveText("380 Ma");
   const svg = await readFile(await download(page, "svg", testInfo, "corrected.svg"), "utf8");
   expect(svg).toContain("380 Ma");
   await page.locator("#zero-age").fill("390");
   await page.locator("#zero-age").press("Tab");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+  await expect(page.locator("#mode-badge")).toHaveText("Dated Tree");
   await page.locator("#zero-age").fill("-1");
   await page.locator("#zero-age").press("Tab");
   await expect(page.locator("#notice")).toHaveClass("error");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+  await expect(page.locator("#mode-badge")).toHaveText("Dated Tree");
 });
 
 test("origin input modes show one age or two unordered endpoints and restore the selected mode", async ({ page }, testInfo) => {
@@ -1055,12 +824,12 @@ test("origin input modes show one age or two unordered endpoints and restore the
   await page.locator("#zero-age-second").fill("-1");
   await page.locator("#apply-time").click();
   await expect(page.locator("#notice")).toHaveClass("error");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+  await expect(page.locator("#mode-badge")).toHaveText("Chronogram");
   await page.locator("#zero-age-second").fill("");
   await expect(page.locator("#zero-age-summary")).toContainText("請填入兩個端點");
   await page.locator("#apply-time").click();
   await expect(page.locator("#notice")).toHaveClass("error");
-  await expect(page.locator("#mode-badge")).toHaveText("拓樸模式（Topology）");
+  await expect(page.locator("#mode-badge")).toHaveText("Chronogram");
   await page.getByLabel("已知年代", { exact: true }).check();
   await expect(page.locator("#zero-age-second")).toBeHidden();
   await expect(page.locator("#zero-age-summary")).toHaveText("檔案中的 0＝398 Ma");
@@ -1087,12 +856,12 @@ test("origin input modes show one age or two unordered endpoints and restore the
 });
 
 test("vertical layout separates measured OTU, age and support labels without changing Ma positions", async ({ page }, testInfo) => {
-  await page.locator("#file").setInputFiles(resolve("examples", "trilobites-node-ages.nex"));
-  await expect(page.locator("#file-summary")).toContainText("trilobites-node-ages.nex");
+  await page.locator("#file").setInputFiles(resolve("examples", "dated-tree.nex"));
+  await expect(page.locator("#file-summary")).toContainText("dated-tree.nex");
   await page.locator("#zero-age").fill("385");
   await fillEvidence(page, "Layout regression: illustrative 385 Ma origin only.");
   await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   const checkLayout = async () => {
     const data = await page.locator("#canvas svg").evaluate(svg => {
       const labels = [...svg.querySelectorAll('[data-layer="labels"] text')].map(el => {
@@ -1203,7 +972,7 @@ test("vertical layout separates measured OTU, age and support labels without cha
     await page.locator("#font-size").fill("32");
     await page.locator("#font-size").press("Tab");
     await page.locator("#apply-time").click();
-    await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+    await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
     await checkLayout();
   }
 });
@@ -1217,12 +986,12 @@ test("automatic horizontal range spreads fossil trees and persists with readable
       return arrayBuffer.call(this);
     };
   });
-  await page.locator("#file").setInputFiles(resolve("examples", "trilobites-node-ages.nex"));
-  await expect(page.locator("#file-summary")).toContainText("trilobites-node-ages.nex");
+  await page.locator("#file").setInputFiles(resolve("examples", "dated-tree.nex"));
+  await expect(page.locator("#file-summary")).toContainText("dated-tree.nex");
   await page.locator("#zero-age").fill("385");
   await fillEvidence(page, "Horizontal layout regression only: illustrative 385 Ma origin.");
   await page.locator("#apply-time").click();
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await expect(page.locator("#time-range")).toHaveValue("auto");
   await expect(page.locator("#younger")).toBeDisabled();
   expect(Number(await page.locator("#younger").inputValue())).toBeGreaterThan(370);
@@ -1272,7 +1041,7 @@ test("automatic horizontal range spreads fossil trees and persists with readable
   const saved = await download(page, "save", testInfo, "automatic-range.json");
   await page.reload();
   await page.locator("#file").setInputFiles(saved);
-  await expect(page.locator("#mode-badge")).toHaveText(/^(?:節點年代模式（Node ages|時間枝長模式（Time branches), Ma）$/);
+  await expect(page.locator("#mode-badge")).toHaveText(/^(?:Dated Tree|Chronogram)$/);
   await expect(page.locator("#time-range")).toHaveValue("auto");
   expect(Number(await page.locator("#younger").inputValue())).toBeGreaterThan(370);
   await page.locator("#expand-all").click();

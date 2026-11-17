@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import { LIMITS } from "./model.ts";
 import type { Annotation, SourceDocument, Tree, TreeNode } from "./model.ts";
 
@@ -6,9 +7,9 @@ export class ImportError extends Error {
     let location = "";
     if (text !== undefined && offset !== undefined) {
       const before = text.slice(0, offset).split("\n");
-      location = `（行 ${before.length}，列 ${before.at(-1)!.length + 1}）`;
+      location = t("（行 {0}，列 {1}）", before.length, before.at(-1)!.length + 1);
     }
-    super(`解析：${message}${location}。請檢查格式與原始輸出。`);
+    super(t("解析：{0}{1}。請檢查格式與原始輸出。", message, location));
     this.name = "ImportError";
   }
 }
@@ -31,7 +32,7 @@ function lex(text: string): Token[] {
           else { closed = true; break; }
         } else value += text[i++];
       }
-      if (!closed) throw new ImportError("引號未結束", text, pos);
+      if (!closed) throw new ImportError(t("引號未結束"), text, pos);
       tokens.push({ value, kind: "word", quoted: true, pos });
     } else if (c === "[" || c === "{") {
       const close = c === "[" ? "]" : "}";
@@ -48,9 +49,9 @@ function lex(text: string): Token[] {
         else if (ch === c) depth++;
         else if (ch === close) depth--;
         if (depth) value += ch;
-        if (value.length > LIMITS.annotation) throw new ImportError("註解超過 65,536 字元", text, pos);
+        if (value.length > LIMITS.annotation) throw new ImportError(t("註解超過 65,536 字元"), text, pos);
       }
-      if (depth || quote) throw new ImportError("註解未結束", text, pos);
+      if (depth || quote) throw new ImportError(t("註解未結束"), text, pos);
       tokens.push({ value, kind: c === "[" ? "comment" : "tag", pos });
     } else if ("(),:;=*".includes(c)) {
       tokens.push({ value: c, kind: "symbol", pos });
@@ -58,7 +59,7 @@ function lex(text: string): Token[] {
       while (i < text.length && !/[\s()[\]{},:;=*'"]/.test(text[i])) i++;
       tokens.push({ value: text.slice(pos, i), kind: "word", pos });
     }
-    if (tokens.length > 2_000_000) throw new ImportError("詞彙數量超出安全限制");
+    if (tokens.length > 2_000_000) throw new ImportError(t("詞彙數量超出安全限制"));
   }
   return tokens;
 }
@@ -75,18 +76,18 @@ function splitValues(text: string, delimiter: string): string[] {
       }
     } else if (c === "'" || c === '"') quote = c;
     else if (c === "{") depth++;
-    else if (c === "}") { if (--depth < 0) throw new ImportError("註解陣列括號不匹配"); }
+    else if (c === "}") { if (--depth < 0) throw new ImportError(t("註解陣列括號不匹配")); }
     else if (c === delimiter && depth === 0) { parts.push(text.slice(start, i).trim()); start = i + 1; }
   }
-  if (depth || quote) throw new ImportError("註解陣列或字串未結束");
+  if (depth || quote) throw new ImportError(t("註解陣列或字串未結束"));
   parts.push(text.slice(start).trim());
   return parts;
 }
 
 function annotationValue(text: string, depth = 0): Annotation {
-  if (depth > 32) throw new ImportError("註解陣列深度超限");
+  if (depth > 32) throw new ImportError(t("註解陣列深度超限"));
   if (text.startsWith("{")) {
-    if (!text.endsWith("}")) throw new ImportError("註解陣列未結束");
+    if (!text.endsWith("}")) throw new ImportError(t("註解陣列未結束"));
     return splitValues(text.slice(1, -1), ",").map(s => annotationValue(s, depth + 1));
   }
   if ((text.startsWith("'") && text.endsWith("'")) || (text.startsWith('"') && text.endsWith('"'))) {
@@ -111,7 +112,7 @@ function annotate(node: TreeNode, token: Token) {
     const equal = pair.indexOf("=");
     if (equal < 0) continue;
     const key = pair.slice(0, equal).trim();
-    if (!key) throw new ImportError("空白註解鍵");
+    if (!key) throw new ImportError(t("空白註解鍵"));
     Object.defineProperty(node.annotations, key, {
       value: annotationValue(pair.slice(equal + 1).trim()), enumerable: true, configurable: true, writable: true
     });
@@ -141,37 +142,37 @@ class TreeReader {
     }
   }
   read(parentId: string | null, depth: number): TreeNode {
-    if (depth > LIMITS.depth) this.fail("樹深度超過 512");
+    if (depth > LIMITS.depth) this.fail(t("樹深度超過 512"));
     this.comments();
     const node: TreeNode = {
       id: `${this.treeId}-n${this.nodes.length}`, parentId, children: [], name: "",
       length: null, support: null, annotations: {}, rawAnnotations: []
     };
     this.nodes.push(node);
-    if (this.nodes.length > LIMITS.nodes) this.fail("節點超過 200,000");
+    if (this.nodes.length > LIMITS.nodes) this.fail(t("節點超過 200,000"));
     const internal = this.is("(");
     if (internal) {
       this.index++;
       node.children.push(this.read(node.id, depth + 1).id);
       while (this.is(",")) { this.index++; node.children.push(this.read(node.id, depth + 1).id); }
-      if (!this.is(")")) this.fail("缺少右括號");
+      if (!this.is(")")) this.fail(t("缺少右括號"));
       this.index++;
     }
     const token = this.tokens[this.index];
     if (token?.kind === "word") {
       node.name = token.value; this.index++;
       if (!internal && this.translation.size) {
-        if (!this.translation.has(node.name)) this.fail(`TRANSLATE 缺少分類群 ${node.name}`);
+        if (!this.translation.has(node.name)) this.fail(t("TRANSLATE 缺少分類群 {0}", node.name));
         node.name = this.translation.get(node.name)!;
       }
       if (internal && !token.quoted && numeric.test(node.name)) node.support = Number(node.name);
-    } else if (!internal) this.fail("缺少末端名稱");
+    } else if (!internal) this.fail(t("缺少末端名稱"));
     this.comments(node);
     if (this.is(":")) {
       this.index++;
       const length = this.tokens[this.index++];
       if (!length || length.kind !== "word" || !numeric.test(length.value) || !Number.isFinite(Number(length.value)) || Number(length.value) < 0) {
-        this.fail("枝長必須是非負有限數值");
+        this.fail(t("枝長必須是非負有限數值"));
       }
       node.length = Number(length.value);
       this.comments(node);
@@ -180,8 +181,8 @@ class TreeReader {
   }
   parse(name: string, forcedRoot: boolean | null = null): Tree {
     const root = this.read(null, 0);
-    if (!root.children.length) this.fail("不支援單節點或非樹敘述");
-    if (this.index !== this.tokens.length) this.fail("樹定義尾端有未預期內容");
+    if (!root.children.length) this.fail(t("不支援單節點或非樹敘述"));
+    if (this.index !== this.tokens.length) this.fail(t("樹定義尾端有未預期內容"));
     return finishTree({ id: this.treeId, name, rootId: root.id, rooted: forcedRoot ?? this.rooted, nodes: this.nodes, warnings: [] });
   }
 }
@@ -195,8 +196,8 @@ function finishTree(tree: Tree): Tree {
     if (names.has(n.name)) duplicates.add(n.name);
     names.add(n.name);
   }
-  if (tips > LIMITS.tips) throw new ImportError("單棵樹超過 1,000 個末端 OTU");
-  if (duplicates.size) tree.warnings.push(`重複末端名稱（以 ID 區分）：${[...duplicates].slice(0, 10).join("、")}`);
+  if (tips > LIMITS.tips) throw new ImportError(t("單棵樹超過 1,000 個末端 OTU"));
+  if (duplicates.size) tree.warnings.push(t("重複末端名稱（以 ID 區分）：{0}", [...duplicates].slice(0, 10).join("、")));
   return tree;
 }
 
@@ -206,7 +207,7 @@ function statements(tokens: Token[], text: string): Token[][] {
   tokens.forEach((t, i) => {
     if (t.kind === "symbol" && t.value === ";") { result.push(tokens.slice(start, i)); start = i + 1; }
   });
-  if (tokens.slice(start).some(t => t.kind !== "comment")) throw new ImportError("敘述缺少結尾分號", text, tokens[start]?.pos);
+  if (tokens.slice(start).some(t => t.kind !== "comment")) throw new ImportError(t("敘述缺少結尾分號"), text, tokens[start]?.pos);
   return result;
 }
 
@@ -214,9 +215,9 @@ function parseText(text: string, format: string): Tree[] {
   const tokens = lex(text.replace(/^\uFEFF/, ""));
   const trees: Tree[] = [];
   const addTree = (ts: Token[], name: string, translate?: Map<string, string>, rooted: boolean | null = null) => {
-    if (trees.length >= LIMITS.trees) throw new ImportError("檔案超過 100 棵樹");
+    if (trees.length >= LIMITS.trees) throw new ImportError(t("檔案超過 100 棵樹"));
     trees.push(new TreeReader(ts, text, `t${trees.length}`, translate).parse(name, rooted));
-    if (trees.reduce((s, t) => s + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError("總節點超過 200,000");
+    if (trees.reduce((s, t) => s + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError(t("總節點超過 200,000"));
   };
   if (format !== "nexus") {
     for (const statement of statements(tokens, text)) {
@@ -230,31 +231,31 @@ function parseText(text: string, format: string): Tree[] {
       if (!s.length) continue;
       const cmd = s[0].value.toUpperCase();
       if (cmd === "BEGIN") {
-        if (block) throw new ImportError("NEXUS 區塊不可巢狀");
+        if (block) throw new ImportError(t("NEXUS 區塊不可巢狀"));
         block = s[1]?.value.toUpperCase() ?? "";
         translate = new Map();
       } else if (cmd === "END" || cmd === "ENDBLOCK") { block = ""; translate = new Map(); }
       else if (block === "TREES" && cmd === "TRANSLATE") {
-        if (translate.size) throw new ImportError("同一區塊重複 TRANSLATE");
+        if (translate.size) throw new ImportError(t("同一區塊重複 TRANSLATE"));
         let i = 1;
         while (i < s.length) {
           const key = s[i++], value = s[i++];
-          if (key?.kind !== "word" || value?.kind !== "word" || translate.has(key.value)) throw new ImportError("TRANSLATE 對照無效");
+          if (key?.kind !== "word" || value?.kind !== "word" || translate.has(key.value)) throw new ImportError(t("TRANSLATE 對照無效"));
           translate.set(key.value, value.value);
           if (i < s.length) {
-            if (s[i++].value !== ",") throw new ImportError("TRANSLATE 缺少逗號");
+            if (s[i++].value !== ",") throw new ImportError(t("TRANSLATE 缺少逗號"));
           }
         }
       } else if (block === "TREES" && (cmd === "TREE" || cmd === "UTREE")) {
         const equal = raw.findIndex(t => t.kind === "symbol" && t.value === "=");
         const header = s.slice(1, s.findIndex(t => t.kind === "symbol" && t.value === "=")).filter(t => t.value !== "*" || t.quoted);
-        if (equal < 0 || header.length !== 1 || header[0].kind !== "word") throw new ImportError("TREE 名稱或等號無效");
+        if (equal < 0 || header.length !== 1 || header[0].kind !== "word") throw new ImportError(t("TREE 名稱或等號無效"));
         addTree(raw.slice(equal + 1), header[0].value, translate, cmd === "UTREE" ? false : null);
       }
     }
-    if (block) throw new ImportError("NEXUS 區塊缺少 END");
+    if (block) throw new ImportError(t("NEXUS 區塊缺少 END"));
   }
-  if (!trees.length) throw new ImportError("沒有可顯示的樹；NEXUS 須含 TREES，DATA／CHARACTERS 本身不是樹");
+  if (!trees.length) throw new ImportError(t("沒有可顯示的樹；NEXUS 須含 TREES，DATA／CHARACTERS 本身不是樹"));
   return trees;
 }
 
@@ -263,26 +264,26 @@ const first = (e: Element, local: string) => children(e, local)[0];
 const textOf = (e: Element, local: string) => first(e, local)?.textContent?.trim() ?? "";
 
 function parseXML(text: string, forced: string): { format: string; trees: Tree[] } {
-  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new ImportError("禁止 XML DTD／外部實體");
+  if (/<!DOCTYPE|<!ENTITY/i.test(text)) throw new ImportError(t("禁止 XML DTD／外部實體"));
   const xml = new DOMParser().parseFromString(text, "application/xml");
-  if (xml.querySelector("parsererror")) throw new ImportError("XML 語法損毀");
+  if (xml.querySelector("parsererror")) throw new ImportError(t("XML 語法損毀"));
   for (const el of [...xml.getElementsByTagName("*")]) {
     for (const attr of [...el.attributes]) {
       if ((/^(href|src|schemaLocation)$/i.test(attr.localName) && /^(https?:|file:|\/\/)/i.test(attr.value)) ||
-        /^on/i.test(attr.name)) throw new ImportError("XML 含外部資源或可執行屬性");
+        /^on/i.test(attr.name)) throw new ImportError(t("XML 含外部資源或可執行屬性"));
     }
   }
   const root = xml.documentElement;
   const detected = root.localName.toLowerCase();
   const format = forced === "auto" ? detected : forced;
-  if (format !== detected) throw new ImportError("指定格式與 XML 根元素不相符");
+  if (format !== detected) throw new ImportError(t("指定格式與 XML 根元素不相符"));
   const trees: Tree[] = [];
   if (format === "phyloxml") {
     for (const phylogeny of children(root, "phylogeny")) {
-      if (trees.length >= LIMITS.trees) throw new ImportError("檔案超過 100 棵樹");
+      if (trees.length >= LIMITS.trees) throw new ImportError(t("檔案超過 100 棵樹"));
       const treeId = `t${trees.length}`, nodes: TreeNode[] = [];
       const walk = (clade: Element, parentId: string | null, depth: number): TreeNode => {
-        if (depth > LIMITS.depth) throw new ImportError("樹深度超過 512");
+        if (depth > LIMITS.depth) throw new ImportError(t("樹深度超過 512"));
         const rawLength = clade.getAttribute("branch_length") ?? textOf(clade, "branch_length");
         const node: TreeNode = {
           id: `${treeId}-n${nodes.length}`, parentId, children: [],
@@ -291,7 +292,7 @@ function parseXML(text: string, forced: string): { format: string; trees: Tree[]
           support: null, annotations: {}, rawAnnotations: []
         };
         nodes.push(node);
-        if (nodes.length + trees.reduce((sum, t) => sum + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError("總節點超過 200,000");
+        if (nodes.length + trees.reduce((sum, t) => sum + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError(t("總節點超過 200,000"));
         for (const prop of children(clade, "property")) {
           const key = prop.getAttribute("ref") || "property";
           Object.defineProperty(node.annotations, key, { value: annotationValue(prop.textContent?.trim() ?? ""), enumerable: true });
@@ -305,7 +306,7 @@ function parseXML(text: string, forced: string): { format: string; trees: Tree[]
         return node;
       };
       const roots = children(phylogeny, "clade");
-      if (roots.length !== 1) throw new ImportError("PhyloXML 每棵樹須有唯一根 clade");
+      if (roots.length !== 1) throw new ImportError(t("PhyloXML 每棵樹須有唯一根 clade"));
       const nr = walk(roots[0], null, 0);
       const rooted = phylogeny.getAttribute("rooted");
       trees.push(finishTree({ id: treeId, name: textOf(phylogeny, "name") || `Tree ${trees.length + 1}`, rootId: nr.id, rooted: rooted === null ? null : rooted === "true" || rooted === "1", nodes, warnings: [] }));
@@ -314,61 +315,61 @@ function parseXML(text: string, forced: string): { format: string; trees: Tree[]
     for (const block of children(root, "trees")) {
       const otuBlock = children(root, "otus").find(e => e.id === block.getAttribute("otus"));
       const otus = new Map(otuBlock ? children(otuBlock, "otu").map(e => [e.id, e.getAttribute("label") ?? e.id]) : []);
-      if (children(block, "network").length) throw new ImportError("NeXML 網狀結構不屬於樹");
+      if (children(block, "network").length) throw new ImportError(t("NeXML 網狀結構不屬於樹"));
       for (const elem of children(block, "tree")) {
-        if (trees.length >= LIMITS.trees) throw new ImportError("檔案超過 100 棵樹");
+        if (trees.length >= LIMITS.trees) throw new ImportError(t("檔案超過 100 棵樹"));
         const treeId = `t${trees.length}`, nodes: TreeNode[] = [], idMap = new Map<string, TreeNode>();
         for (const el of children(elem, "node")) {
           const sourceId = el.id;
-          if (!sourceId || idMap.has(sourceId)) throw new ImportError("NeXML node ID 缺少或重複");
+          if (!sourceId || idMap.has(sourceId)) throw new ImportError(t("NeXML node ID 缺少或重複"));
           const otu = el.getAttribute("otu");
-          if (otu && !otus.has(otu)) throw new ImportError("NeXML OTU 對照不存在");
+          if (otu && !otus.has(otu)) throw new ImportError(t("NeXML OTU 對照不存在"));
           const node: TreeNode = { id: `${treeId}-n${nodes.length}`, parentId: null, children: [], name: otu ? otus.get(otu)! : el.getAttribute("label") ?? "", length: null, support: null, annotations: {}, rawAnnotations: [] };
           for (const meta of children(el, "meta")) {
             const key = meta.getAttribute("property") ?? meta.getAttribute("rel") ?? "meta";
             Object.defineProperty(node.annotations, key, { value: annotationValue(meta.getAttribute("content") ?? meta.textContent ?? ""), enumerable: true });
           }
           nodes.push(node); idMap.set(sourceId, node);
-          if (nodes.length + trees.reduce((sum, t) => sum + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError("總節點超過 200,000");
+          if (nodes.length + trees.reduce((sum, t) => sum + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError(t("總節點超過 200,000"));
         }
         for (const edge of children(elem, "edge")) {
           const source = idMap.get(edge.getAttribute("source") ?? ""), target = idMap.get(edge.getAttribute("target") ?? "");
-          if (!source || !target || target.parentId !== null) throw new ImportError("NeXML 含無效邊或多重父節點");
+          if (!source || !target || target.parentId !== null) throw new ImportError(t("NeXML 含無效邊或多重父節點"));
           target.parentId = source.id; source.children.push(target.id);
           if (edge.hasAttribute("length")) target.length = checkedLength(edge.getAttribute("length")!);
         }
         const roots = nodes.filter(n => n.parentId === null);
-        if (roots.length !== 1) throw new ImportError("NeXML 須為連通且唯一根的樹");
+        if (roots.length !== 1) throw new ImportError(t("NeXML 須為連通且唯一根的樹"));
         const map = new Map(nodes.map(n => [n.id, n])), visited = new Set<string>();
         const visit = (n: TreeNode, depth: number) => {
-          if (depth > LIMITS.depth || visited.has(n.id)) throw new ImportError("NeXML 循環或樹深度超過 512");
+          if (depth > LIMITS.depth || visited.has(n.id)) throw new ImportError(t("NeXML 循環或樹深度超過 512"));
           visited.add(n.id); for (const id of n.children) visit(map.get(id)!, depth + 1);
         };
         visit(roots[0], 0);
-        if (visited.size !== nodes.length) throw new ImportError("NeXML 存在不連通節點或循環");
+        if (visited.size !== nodes.length) throw new ImportError(t("NeXML 存在不連通節點或循環"));
         const rootElement = children(elem, "node").find(n => idMap.get(n.id)?.id === roots[0].id);
         const rootMark = rootElement?.getAttribute("root");
         const rooted = rootMark === "true" || rootMark === "1" ? true : null;
         trees.push(finishTree({ id: treeId, name: elem.getAttribute("label") || `Tree ${trees.length + 1}`, rootId: roots[0].id, rooted, nodes, warnings: [] }));
       }
     }
-  } else throw new ImportError("不支援此 XML；僅接受 PhyloXML／NeXML 樹，不接受 BEAST 設定 XML");
-  if (!trees.length) throw new ImportError("XML 不含可顯示的樹");
-  if (trees.length > LIMITS.trees || trees.reduce((n, t) => n + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError("XML 樹數／總節點超限");
+  } else throw new ImportError(t("不支援此 XML；僅接受 PhyloXML／NeXML 樹，不接受 BEAST 設定 XML"));
+  if (!trees.length) throw new ImportError(t("XML 不含可顯示的樹"));
+  if (trees.length > LIMITS.trees || trees.reduce((n, t) => n + t.nodes.length, 0) > LIMITS.nodes) throw new ImportError(t("XML 樹數／總節點超限"));
   return { format, trees };
 }
 
 function checkedLength(raw: string): number {
-  if (!numeric.test(raw) || !Number.isFinite(Number(raw)) || Number(raw) < 0) throw new ImportError("枝長必須是非負有限數值");
+  if (!numeric.test(raw) || !Number.isFinite(Number(raw)) || Number(raw) < 0) throw new ImportError(t("枝長必須是非負有限數值"));
   return Number(raw);
 }
 
 export function parseDocument(content: string, filename = "input.tre", requested = "auto"): SourceDocument {
-  if (new TextEncoder().encode(content).length > LIMITS.bytes) throw new ImportError("檔案超過 10 MiB");
+  if (new TextEncoder().encode(content).length > LIMITS.bytes) throw new ImportError(t("檔案超過 10 MiB"));
   const start = content.replace(/^\uFEFF/, "").trimStart();
   const allowed = ["auto", "newick", "nhx", "hyphy", "beast", "nexus", "phyloxml", "nexml"];
-  if (!allowed.includes(requested)) throw new ImportError("不支援的指定格式");
-  if (!start) throw new ImportError("檔案為空");
+  if (!allowed.includes(requested)) throw new ImportError(t("不支援的指定格式"));
+  if (!start) throw new ImportError(t("檔案為空"));
   let format = requested;
   if (start.startsWith("<") || ["phyloxml", "nexml"].includes(format)) {
     const result = parseXML(content, format);
@@ -386,7 +387,7 @@ export function parseDocument(content: string, filename = "input.tre", requested
 export function availableFields(tree: Tree): string[] {
   const keys = new Set<string>();
   for (const node of tree.nodes) {
-    for (const key of Object.keys(node.annotations)) if (!Array.isArray(node.annotations[key]) && /age|height|date|time/i.test(key)) keys.add(key);
+    for (const key of Object.keys(node.annotations)) if (/^(age|height|date|time)(_(mean|median))?$/i.test(key)) keys.add(key);
   }
   return [...keys].sort((a, b) => (a === "age_mean" ? -1 : b === "age_mean" ? 1 : a.localeCompare(b)));
 }
