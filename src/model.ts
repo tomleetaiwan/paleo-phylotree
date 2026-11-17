@@ -88,6 +88,8 @@ export interface ViewState {
   lineWidth: number;
   branchColor: string;
   names: boolean;
+  treeName: boolean;
+  ageRange: boolean;
   ages: boolean;
   allTips: boolean;
   support: boolean;

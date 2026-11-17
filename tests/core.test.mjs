@@ -289,6 +289,19 @@ test("project round trip validates versions, settings and stable IDs", () => {
   assert.deepEqual(loaded.doc.trees, doc.trees);
   assert.deepEqual(loaded.options, options);
   assert.deepEqual(loaded.view, view);
+  const hiddenLabels = { ...view, treeName: false, ageRange: false };
+  assert.deepEqual(loadProject(saveProject(doc, 0, options, hiddenLabels)).view, hiddenLabels);
+  const legacyLabels = JSON.parse(saved);
+  delete legacyLabels.view.treeName;
+  delete legacyLabels.view.ageRange;
+  assert.deepEqual(loadProject(JSON.stringify(legacyLabels)).view, view);
+  for (const key of ["treeName", "ageRange"]) {
+    for (const value of ["false", null, 0]) {
+      const invalid = JSON.parse(saved);
+      invalid.view[key] = value;
+      assert.throws(() => loadProject(JSON.stringify(invalid)), /圖形設定/);
+    }
+  }
   for (const [section, keys] of [
     ["options", ["autoMethod", "zeroAgeMa", "zeroAgePairMa"]],
     ["view", ["autoRange", "rootStyle", "rootStem"]]

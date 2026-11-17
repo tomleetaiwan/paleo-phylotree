@@ -23,6 +23,8 @@ for (const language of ["zh-TW", "zh-CN", "en-US", "fr-FR", "ja-JP"]) {
       page.on("request", request => { if (/^https?:/.test(request.url())) requests.push(request.url()); });
       page.on("pageerror", error => errors.push(error.message));
       await page.goto(url);
+      await expect(page.locator("#mode-badge")).toHaveText("\u2014");
+      await expect(page.locator("#mode-badge")).not.toHaveAttribute("data-mode");
       await expect(page.locator("html")).toHaveAttribute("lang", chinese ? "zh-Hant" : "en");
       await expect(page).toHaveTitle(chinese ? "PaleoTree — 種系樹檢視器" : "PaleoTree — Phylogenetic Tree Viewer");
       await expect(page.getByRole("button", { name: chinese ? "開啟檔案" : "Open file", exact: true })).toBeVisible();

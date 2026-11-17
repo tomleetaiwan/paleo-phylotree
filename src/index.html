@@ -26,7 +26,7 @@
         <div id="tree-stats" class="stat-grid"></div>
         <div id="import-warnings" class="diagnostics" role="status" hidden></div>
       </section>
-      <section><h2><span><span data-i18n="類型">類型</span></span><span id="mode-badge" class="badge" data-mode="cladogram">Cladogram</span></h2>
+      <section><h2><span><span data-i18n="類型">類型</span></span><span id="mode-badge" class="badge">&mdash;</span></h2>
         <p id="mode-description" class="hint">Dated Tree · Chronogram · Relative Chronogram · Phylogram · Cladogram</p>
         <p id="source-status" class="hint" role="status"><span data-i18n="載入後依年代資訊自動分類；不以枝長數值推測時間語意。">載入後依年代資訊自動分類；不以枝長數值推測時間語意。</span></p>
         <div id="time-interpretation">
@@ -77,10 +77,12 @@
         <div class="two-col"><label><span data-i18n="枝條顏色">枝條顏色</span><input id="branch-color" type="color" value="#254b48"></label><label><span data-i18n="枝條線寬">枝條線寬</span><input id="line-width" type="number" min="0.5" max="6" step="0.5" value="1.5"></label></div>
         <div class="two-col"><label class="check"><input id="names" type="checkbox" checked><span data-i18n="節點名稱">節點名稱</span></label><label class="check"><input id="support" type="checkbox"><span data-i18n="支持度">支持度</span></label></div>
         <div id="time-label-settings">
+        <label class="check"><input id="age-range" type="checkbox" checked><span data-i18n="顯示年代範圍">顯示年代範圍</span></label>
         <div class="two-col"><label class="check"><input id="ages" type="checkbox" checked><span data-i18n="節點年代">節點年代</span></label><label class="check"><input id="all-tips" type="checkbox"><span data-i18n="包含 0 Ma 末端年代">包含 0 Ma 末端年代</span></label></div>
         <label class="check"><input id="simplified" type="checkbox"><span data-i18n="簡化標籤">簡化標籤</span></label>
         <p class="hint"><span data-i18n="簡化時，已勾選的標籤僅保留末端名稱與選取節點資訊；點選節點可查看完整資料。">簡化時，已勾選的標籤僅保留末端名稱與選取節點資訊；點選節點可查看完整資料。</span></p>
         </div>
+        <label class="check"><input id="tree-name" type="checkbox" checked><span data-i18n="顯示樹名">顯示樹名</span></label>
         <p id="layout-help" class="hint"><span data-i18n="父節點保持置中，樹較高時可向下捲動。">父節點保持置中，樹較高時可向下捲動。</span></p>
       </details>
       </section>

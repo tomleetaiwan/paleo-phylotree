@@ -80,7 +80,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   const axisTitle = time ? TIME_AXIS_TITLE : view.mode === "relative" ? "Relative time" : view.mode === "phylogram" ? "Branch length" : "Equal steps";
   measurement.font = "12px sans-serif";
   const titleWidth = measurement.measureText(axisTitle).width;
-  measurement.font = "11px sans-serif";
+  measurement.font = time ? "bold 11px sans-serif" : "11px sans-serif";
   const tickHalfWidth = ticks.reduce((max, tick) => Math.max(max, measurement.measureText(String(tick)).width / 2), 0);
   const plotLeft = Math.ceil(16 + titleWidth + 16 + tickHalfWidth);
   const labelWidth = view.names ? Math.min(500, tree.nodes.reduce((max, n) => Math.max(max, Math.min(n.name.length, 100) * view.fontSize * 0.65 + 40), 180)) : 50;
@@ -288,7 +288,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     "data-mode": view.mode, "aria-label": DIAGRAM_MODE_LABELS[view.mode] });
   svg.append(svgElement("rect", { width, height, fill: "#ffffff" }));
   svg.append(svgElement("title", {}, `${tree.name} — ${VIEW_MODE_LABELS[view.mode]} — ${axisTitle}`));
-  svg.append(svgElement("text", { x: plotLeft, y: 24, fill: "#203f3c", "font-size": 14, "font-family": "sans-serif" }, tree.name));
+  if (view.treeName) svg.append(svgElement("text", { x: plotLeft, y: 24, fill: "#203f3c", "font-size": 14, "font-family": "sans-serif", "data-label-kind": "tree-name" }, tree.name));
   svg.append(svgElement("text", {
     x: 16, y: 68, fill: "#526966", "font-size": 12, "font-family": "sans-serif",
     "data-axis-title": time ? "time" : "scale"
@@ -302,7 +302,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     const drawGrid = (tick: number, minor: boolean) => {
       const x = ageX(tick, older, younger, plotLeft, plotWidth);
       if (view.grid) grid.append(svgElement("line", { x1: x, x2: x, y1: 76, y2: height - 50, stroke: view.gridColor, "stroke-opacity": view.gridOpacity * (minor ? 0.45 : 1), "stroke-width": 1, "data-age": tick }));
-      if (!minor) grid.append(svgElement("text", { x, y: 68, "text-anchor": "middle", "font-size": 11, fill: "#596d6a", "font-family": "sans-serif" }, String(tick)));
+      if (!minor) grid.append(svgElement("text", { x, y: 68, "text-anchor": "middle", "font-size": 11, "font-weight": "bold", fill: "#596d6a", "font-family": "sans-serif" }, String(tick)));
     };
     if (view.minorGrid && ticks.length > 1) {
       const step = (ticks[0] - ticks[1]) / 5;
@@ -378,7 +378,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     }
   }
   svg.append(markers, labels);
-  if (time) svg.append(svgElement("text", { x: plotLeft, y: height - 20, fill: "#657875", "font-size": 11, "font-family": "sans-serif" },
+  if (time && view.ageRange) svg.append(svgElement("text", { x: plotLeft, y: height - 20, fill: "#657875", "font-size": 11, "font-family": "sans-serif", "data-label-kind": "age-range" },
     `Age range: ${older}–${younger} Ma`));
   return { svg, width, height, points, older, younger, plotLeft, plotWidth, ticks, axisTitle, scaleMaximum: maxDistance };
 }

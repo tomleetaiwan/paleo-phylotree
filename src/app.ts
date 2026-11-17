@@ -257,7 +257,7 @@ function syncControls() {
     "font-size": view.fontSize, "line-width": view.lineWidth, "branch-color": view.branchColor
   })) input(id).value = String(value);
   for (const [id, value] of Object.entries({
-    "root-stem": view.rootStem, names: view.names, support: view.support
+    "root-stem": view.rootStem, names: view.names, support: view.support, "tree-name": view.treeName, "age-range": view.ageRange
   })) input(id).checked = value;
   select("order").value = view.order;
 }
@@ -349,6 +349,7 @@ function readView(): ViewState {
     ...view, rootStyle: select("root-style").value === "solid" ? "solid" : "hollow", rootStem: input("root-stem").checked,
     fontSize: readNumber("font-size", 8, 32)!, branchColor: input("branch-color").value, lineWidth: readNumber("line-width", 0.5, 6)!,
     names: input("names").checked, support: input("support").checked,
+    treeName: input("tree-name").checked, ageRange: input("age-range").checked,
     order: order === "ascending" ? "ascending" : order === "descending" ? "descending" : "original"
   };
   if (!isTimeMode(view.mode)) return common;
@@ -417,7 +418,7 @@ evidenceInput.addEventListener("change", action(() => {
   options.evidence = evidenceInput.value.trim();
   updateDiagnostics();
 }));
-for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "font-size", "branch-color", "line-width", "names", "ages", "all-tips", "support", "simplified", "order"]) {
+for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "font-size", "branch-color", "line-width", "names", "ages", "all-tips", "support", "simplified", "order", "tree-name", "age-range"]) {
   element(id).addEventListener("change", action(() => {
     if (!doc) return;
     const next = readView();
@@ -526,7 +527,7 @@ function exportSVG(): { text: string; width: number; height: number } {
     const header = svgElement("g", { "data-export-axis": "viewport" });
     header.append(svgElement("rect", { x: left, y: top, width, height: 65, fill: "#ffffff" }));
     header.append(svgElement("text", { x: left + 10, y: top + 18, fill: "#203f3c", "font-size": 12, "font-family": "sans-serif" },
-      `${currentTree().name} · ${DIAGRAM_MODE_LABELS[view.mode]} · Current view`));
+      `${view.treeName ? `${currentTree().name} · ` : ""}${DIAGRAM_MODE_LABELS[view.mode]} · Current view`));
     if (diagram.ticks.length) {
       header.append(svgElement("text", {
         x: left + 10, y: top + 40, fill: "#526966", "font-size": 12, "font-family": "sans-serif", "data-axis-title": "time"
@@ -537,7 +538,9 @@ function exportSVG(): { text: string; width: number; height: number } {
           : diagram.plotLeft + tick / (diagram.scaleMaximum || 1) * diagram.plotWidth;
         if (x < left + diagram.plotLeft || x > left + width - 8) continue;
         header.append(svgElement("line", { x1: x, x2: x, y1: top + 47, y2: top + 55, stroke: "#7f9691" }));
-        header.append(svgElement("text", { x, y: top + 40, "text-anchor": "middle", fill: "#596d6a", "font-size": 11, "font-family": "sans-serif" }, String(tick)));
+        header.append(svgElement("text", { x, y: top + 40, "text-anchor": "middle", fill: "#596d6a", "font-size": 11, "font-family": "sans-serif",
+          ...(isTimeMode(view.mode) ? { "font-weight": "bold" } : {})
+        }, String(tick)));
       }
       header.append(svgElement("line", { x1: Math.min(left + diagram.plotLeft, left + width), x2: left + width, y1: top + 55, y2: top + 55, stroke: "#7f9691" }));
     }

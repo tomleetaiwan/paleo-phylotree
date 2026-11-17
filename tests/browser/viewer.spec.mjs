@@ -411,6 +411,53 @@ test("age notes start collapsed, expand for editing and survive project restorat
   await expect(field).toHaveValue(text);
 });
 
+test("tree name and age range toggle independently and persist in projects and exports", async ({ page }, testInfo) => {
+  await demoTime(page);
+  const title = page.locator('#canvas [data-label-kind="tree-name"]');
+  const range = page.locator('#canvas [data-label-kind="age-range"]');
+  await expect(page.locator("#tree-name")).toBeChecked();
+  await expect(page.locator("#age-range")).toBeChecked();
+  await expect(title).toHaveCount(1);
+  await expect(range).toContainText("Age range:");
+  const treeName = await title.textContent();
+  const branches = await page.locator('[data-layer="branches"]').evaluate(el => el.outerHTML);
+  await page.locator("#tree-name").uncheck();
+  await expect(title).toHaveCount(0);
+  await expect(range).toHaveCount(1);
+  await page.locator("#tree-name").check();
+  await page.locator("#age-range").uncheck();
+  await expect(title).toHaveCount(1);
+  await expect(range).toHaveCount(0);
+  await page.locator("#tree-name").uncheck();
+  expect(await page.locator('[data-layer="branches"]').evaluate(el => el.outerHTML)).toBe(branches);
+  for (const scope of ["full", "viewport"]) {
+    await page.locator("#export-scope").selectOption(scope);
+    const svg = await readFile(await download(page, "svg", testInfo, `${scope}-hidden-labels.svg`), "utf8");
+    const texts = await page.evaluate(text => [...new DOMParser().parseFromString(text, "image/svg+xml")
+      .querySelectorAll("text")].map(el => el.textContent), svg);
+    expect(texts.some(text => text.includes("Age range:"))).toBe(false);
+    expect(texts.some(text => text.includes(treeName))).toBe(false);
+  }
+  const saved = await download(page, "save", testInfo, "hidden-labels.json");
+  await page.reload();
+  await page.locator("#file").setInputFiles(saved);
+  await expect(page.locator("#tree-name")).not.toBeChecked();
+  await expect(page.locator("#age-range")).not.toBeChecked();
+  await expect(title).toHaveCount(0);
+  await expect(range).toHaveCount(0);
+  await page.locator("#style-settings > summary").click();
+  await page.locator("#tree-name").check();
+  await page.locator("#age-range").check();
+  await expect(title).toHaveCount(1);
+  await expect(range).toHaveCount(1);
+  await page.locator("#demo").selectOption("cladogram");
+  await expect(page.locator("#age-range")).toBeHidden();
+  await expect(range).toHaveCount(0);
+  await expect(title).toHaveCount(1);
+  await page.locator("#tree-name").uncheck();
+  await expect(title).toHaveCount(0);
+});
+
 test("root appearance changes only its marker and survives exports and project restore", async ({ page }, testInfo) => {
   await demoTime(page);
   const marker = page.locator('[data-node-id="t0-n0"] > circle').nth(1);
@@ -516,13 +563,14 @@ test("SVG, PNG, CSV and original downloads work offline", async ({ page }, testI
       const ticks = [...root.querySelectorAll("text")].filter(el => /^\d+(?:\.\d+)?$/.test(el.textContent));
       return {
         title: title.textContent, left: b.x, right: b.x + b.width, baseline: Number(title.getAttribute("y")),
-        ticks: ticks.map(el => ({ left: el.getBBox().x, baseline: Number(el.getAttribute("y")) }))
+        ticks: ticks.map(el => ({ left: el.getBBox().x, baseline: Number(el.getAttribute("y")), weight: getComputedStyle(el).fontWeight }))
       };
     });
     expect(layout.title).toBe("Age (Ma)");
     expect(layout.left).toBeGreaterThanOrEqual(0);
     expect(layout.ticks.length).toBeGreaterThan(0);
     for (const tick of layout.ticks) {
+      expect(tick.weight).toBe("700");
       expect(tick.baseline).toBe(layout.baseline);
       expect(tick.left - layout.right).toBeGreaterThanOrEqual(10);
     }

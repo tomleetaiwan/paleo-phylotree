@@ -248,6 +248,8 @@ export const en = {
   "枝條顏色": "Branch color",
   "枝條線寬": "Branch width",
   "節點名稱": "Node names",
+  "顯示樹名": "Show tree name",
+  "顯示年代範圍": "Show age range",
   "節點年代": "Node ages",
   "包含 0 Ma 末端年代": "Include tip ages at 0 Ma",
   "簡化標籤": "Simplify labels",
