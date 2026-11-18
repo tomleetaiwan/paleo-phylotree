@@ -192,6 +192,96 @@ test("unknown tip dates are dashed, never invented as zero and remain blank in C
   expect(exported).not.toMatch(/NaN|undefined/);
 });
 
+for (const transparent of [false, true]) {
+test(`custom background colors (transparent=${transparent}) apply to every mode, exports and restored projects`, async ({ page }, testInfo) => {
+  const fill = transparent ? "none" : "#e0f2ff";
+  for (const mode of ["dated", "chronogram", "relative", "phylogram", "cladogram"]) {
+    await page.locator("#demo").selectOption(mode);
+    await expect(page.locator("#background-transparent")).not.toBeChecked();
+    await expect(page.locator("#background-color")).toHaveValue("#ffffff");
+    await expect(page.locator("#canvas svg > rect").first()).toHaveAttribute("fill", "#ffffff");
+    await page.locator("#background-color").fill("#e0f2ff");
+    await page.locator("#background-color").dispatchEvent("change");
+    await page.locator("#background-transparent").setChecked(transparent);
+    if (transparent) await expect(page.locator("#background-color")).toBeDisabled();
+    else await expect(page.locator("#background-color")).toBeEnabled();
+    await expect(page.locator("#canvas")).toHaveCSS("background-color", transparent ? "rgba(0, 0, 0, 0)" : "rgb(224, 242, 255)");
+    await expect(page.locator("#canvas svg > rect").first()).toHaveAttribute("fill", fill);
+  }
+  await page.locator("#demo").selectOption("chronogram");
+  await page.locator("#background-color").fill("#e0f2ff");
+  await page.locator("#background-color").dispatchEvent("change");
+  await page.locator("#background-transparent").setChecked(transparent);
+  await expect(page.locator("[data-age-label]").first()).toHaveAttribute("stroke", fill);
+  for (const scope of ["full", "viewport"]) {
+    await page.locator("#export-scope").selectOption(scope);
+    const text = await readFile(await download(page, "svg", testInfo, `${scope}-background.svg`), "utf8");
+    const exported = await page.context().newPage();
+    try {
+      await exported.setContent(text);
+      await expect(exported.locator(scope === "full" ? "svg > rect" : '[data-export-axis] > rect').first())
+        .toHaveAttribute("fill", fill);
+    } finally { await exported.close(); }
+    const png = await readFile(await download(page, "png", testInfo, `${scope}-background.png`));
+    const pixel = await page.evaluate(async base64 => {
+      const image = new Image();
+      image.src = `data:image/png;base64,${base64}`;
+      await image.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(image, 0, 0);
+      return [...ctx.getImageData(0, 0, 1, 1).data];
+    }, png.toString("base64"));
+    expect(pixel).toEqual(transparent ? [0, 0, 0, 0] : [224, 242, 255, 255]);
+  }
+  const saved = await download(page, "save", testInfo, "background.json");
+  await page.reload();
+  await page.locator("#file").setInputFiles(saved);
+  await expect(page.locator("#background-color")).toHaveValue("#e0f2ff");
+  await expect(page.locator("#background-transparent")).toBeChecked({ checked: transparent });
+  await expect(page.locator("#canvas svg > rect").first()).toHaveAttribute("fill", fill);
+  await page.locator("#style-settings > summary").click();
+  await page.locator("#background-transparent").uncheck();
+  await expect(page.locator("#background-color")).toBeEnabled();
+  await expect(page.locator("#canvas svg > rect").first()).toHaveAttribute("fill", "#e0f2ff");
+});
+}
+
+test("manual time confirmation is shown only when branch time needs confirmation", async ({ page }) => {
+  await expect(page.locator("#branch-time-confirmation")).toBeHidden();
+  for (const text of [
+    "[&R](A:10,B:10)[&branch_length_unit=Ma,root_age=100];",
+    "[&R](A:10,B:10)[&branch_length_unit=relative_time];",
+    "[&R](A:10,B:10)[&age=100];",
+    "[&R](A,B);",
+    "[&R](A:10,B);",
+    "[&U](A:10,B:10);"
+  ]) {
+    await upload(page, "hidden.tre", text);
+    await expect(page.locator("#branch-time-confirmation")).toBeHidden();
+    await expect(page.locator("#branch-time")).toBeHidden();
+  }
+  await upload(page, "dated.tre", "[&R](A:10,B:10)[&age=100];");
+  await page.locator("#method").selectOption("branches");
+  await expect(page.locator("#branch-time")).toBeVisible();
+  await page.locator("#branch-time").check();
+  await expect(page.locator("#mode-badge")).toHaveText("Chronogram");
+  await page.locator("#method").selectOption("auto");
+  await expect(page.locator("#mode-badge")).toHaveText("Dated Tree");
+  await expect(page.locator("#branch-time")).toBeVisible();
+  await page.locator("#branch-time").uncheck();
+  await expect(page.locator("#branch-time-confirmation")).toBeHidden();
+
+  await upload(page, "anchored.tre", "[&R](A:10,B:10)[&root_age=100];");
+  await expect(page.locator("#branch-time")).toBeVisible();
+  await page.locator("#branch-time").check();
+  await expect(page.locator("#mode-badge")).toHaveText("Chronogram");
+  await expect(page.locator("#branch-time")).toBeVisible();
+  await page.locator("#branch-time").uncheck();
+  await expect(page.locator("#mode-badge")).toHaveText("Phylogram");
+});
+
 test("manual time evidence distinguishes relative durations and invalid anchors from generic branch lengths", async ({ page }) => {
   await upload(page, "relative.tre", "[&R]((A:10,B:10):20,C:30);");
   await expect(page.locator("#mode-badge")).toHaveText("Phylogram");
@@ -553,6 +643,45 @@ test("offline Ma coordinates, fossils, exact details, grid and zoom", async ({ p
     return Math.abs((point.left + point.right) / 2 - line.left);
   });
   expect(aligned).toBeLessThan(1);
+});
+
+test("export resolutions match PNG pixels after scale, zoom, scroll and resize changes", async ({ page }, testInfo) => {
+  await expect(page.locator("#full-resolution")).toHaveText("—");
+  await expect(page.locator("#viewport-resolution")).toHaveText("—");
+  await demoTime(page);
+  const checkDownloads = async stage => {
+    const layout = await page.locator(".export-resolution").evaluate(el => {
+      const resolution = el.getBoundingClientRect();
+      const button = document.getElementById("png").getBoundingClientRect();
+      return { gap: resolution.left - button.right, centerOffset: (resolution.top + resolution.bottom - button.top - button.bottom) / 2 };
+    });
+    expect(layout.gap).toBe(6);
+    expect(Math.abs(layout.centerOffset)).toBeLessThan(1);
+    for (const [scope, id] of [["full", "full-resolution"], ["viewport", "viewport-resolution"]]) {
+      await page.locator("#export-scope").selectOption(scope);
+      const png = await readFile(await download(page, "png", testInfo, `${stage}-${scope}.png`));
+      await expect(page.locator(`#${id}`)).toHaveText(`${png.readUInt32BE(16)} × ${png.readUInt32BE(20)} px`);
+    }
+  };
+  await checkDownloads("initial");
+  const initialFull = await page.locator("#full-resolution").textContent();
+  await page.locator("#png-scale").selectOption("2");
+  const [width, height] = initialFull.match(/\d+/g).map(Number);
+  await expect(page.locator("#full-resolution")).toHaveText(`${width * 2} × ${height * 2} px`);
+  const beforeZoom = await page.locator("#viewport-resolution").textContent();
+  await page.locator("#zoom-in").click();
+  await expect(page.locator("#viewport-resolution")).not.toHaveText(beforeZoom);
+  await expect(page.locator("#full-resolution")).toHaveText(`${width * 2} × ${height * 2} px`);
+  await checkDownloads("scaled-zoom");
+  const beforeResize = await page.locator("#viewport-resolution").textContent();
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await expect(page.locator("#viewport-resolution")).not.toHaveText(beforeResize);
+  await page.locator("#canvas").evaluate(el => { el.scrollLeft = el.scrollWidth; el.scrollTop = el.scrollHeight; });
+  await checkDownloads("resized-scrolled");
+  await page.locator("#search").fill("t0-n1"); await page.locator("#find").click();
+  await page.locator("#collapse").click();
+  await expect(page.locator("#full-resolution")).not.toHaveText(`${width * 2} × ${height * 2} px`);
+  await checkDownloads("collapsed");
 });
 
 test("SVG, PNG, CSV and original downloads work offline", async ({ page }, testInfo) => {

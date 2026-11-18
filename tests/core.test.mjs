@@ -278,6 +278,38 @@ test("import limits prevent oversized, too deep and too many tips", () => {
   assert.throws(() => parseDocument("(A,B);".repeat(101)), /100 棵/);
 });
 
+test("project background colors round trip, default for older projects and reject invalid colors", () => {
+  const doc = parseDocument(nexus, "original.nex");
+  const saved = saveProject(doc, 0, options, { ...defaultView(), mode: "dated", backgroundColor: "#e0f2ff" });
+  assert.equal(loadProject(saved).view.backgroundColor, "#e0f2ff");
+  const legacy = JSON.parse(saved);
+  delete legacy.view.backgroundColor;
+  assert.equal(loadProject(JSON.stringify(legacy)).view.backgroundColor, "#ffffff");
+  for (const value of [null, 123, "red", "#fff", "#zzzzzz"]) {
+    const invalid = JSON.parse(saved);
+    invalid.view.backgroundColor = value;
+    assert.throws(() => loadProject(JSON.stringify(invalid)), /圖形設定/);
+  }
+});
+
+test("transparent backgrounds round trip and older projects remain opaque", () => {
+  const doc = parseDocument(nexus, "original.nex");
+  const saved = saveProject(doc, 0, options, {
+    ...defaultView(), mode: "dated", backgroundColor: "#e0f2ff", backgroundTransparent: true
+  });
+  const restored = loadProject(saved).view;
+  assert.equal(restored.backgroundTransparent, true);
+  assert.equal(restored.backgroundColor, "#e0f2ff");
+  const legacy = JSON.parse(saved);
+  delete legacy.view.backgroundTransparent;
+  assert.equal(loadProject(JSON.stringify(legacy)).view.backgroundTransparent, false);
+  for (const value of [null, 0, "true"]) {
+    const invalid = JSON.parse(saved);
+    invalid.view.backgroundTransparent = value;
+    assert.throws(() => loadProject(JSON.stringify(invalid)), /圖形設定/);
+  }
+});
+
 test("project round trip validates versions, settings and stable IDs", () => {
   const doc = parseDocument(nexus, "original.nex");
   const view = { ...defaultView(), mode: "dated" };

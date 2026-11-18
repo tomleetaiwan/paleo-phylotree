@@ -87,6 +87,8 @@ export interface ViewState {
   fontSize: number;
   lineWidth: number;
   branchColor: string;
+  backgroundColor: string;
+  backgroundTransparent: boolean;
   names: boolean;
   treeName: boolean;
   ageRange: boolean;
@@ -101,6 +103,6 @@ export interface ViewState {
   panX: number;
   panY: number;
 }
-export const APP_VERSION = "0.2.0";
+export const APP_VERSION = "0.2.1";
 export const PHYLOTREE_VERSION = "2.6.1";
 export const LIMITS = { bytes: 10 * 1024 * 1024, trees: 100, nodes: 200_000, tips: 1000, depth: 512, annotation: 65_536 };

@@ -30,6 +30,7 @@ aside section{padding:17px 18px;border-bottom:1px solid #e0e6dc}h2{font-size:12p
 #canvas svg{display:block;flex-shrink:0}
 #empty{text-align:center;position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;padding:40px;color:#73866d}#empty p{margin:6px 0}
 .export-bar{border-top:1px solid #e0e6de;background:#fafbf8;padding:8px 12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}.export-bar label{flex-direction:row;align-items:center;font-size:11px;margin:0 4px 0 0}.export-bar button{font-size:11px;padding:6px 8px}.export-bar select{font-size:11px}
+.png-export{display:flex;align-items:center;gap:6px}.export-resolution{display:flex;gap:10px;font-size:11px;color:#58715b;font-variant-numeric:tabular-nums;white-space:nowrap}
 .details{font-size:12px;overflow-wrap:anywhere}.details dl{margin:0}.details dt{color:#85917e;font-size:10px;margin-top:12px}.details dd{margin:3px 0;white-space:pre-wrap;line-height:1.65;color:#304e42}.details pre{white-space:pre-wrap;font-size:11px;max-height:300px;overflow:auto;background:#eff3ec;padding:8px;border-radius:5px}
 .inspector button{font-size:11px;margin-top:10px}.diagnostics{font-size:11px;line-height:1.8;overflow-wrap:anywhere}.diagnostics p{margin:7px 0}.diagnostics .problem{color:#ab5238}.diagnostics .good{color:#2e7351}
 .research-note{margin:20px 17px;border-radius:8px;background:#eef2e8;padding:14px;color:#63765a;font-size:11px;line-height:1.7}.research-note p{margin:7px 0}.research-note span{font-size:9px}

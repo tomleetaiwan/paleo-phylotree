@@ -4,7 +4,7 @@ import trilobites from "../examples/dated-tree.nex";
 import relative from "../examples/relative-chronogram.nex";
 import phylogram from "../examples/phylogram.nex";
 import cladogram from "../examples/cladogram.nex";
-import { LIMITS, isTimeMode, TIME_SOURCE_LABELS, VIEW_MODE_LABELS } from "./model.ts";
+import { LIMITS, hasBranchLengths, hasCompleteBranchLengths, isTimeMode, TIME_SOURCE_LABELS, VIEW_MODE_LABELS } from "./model.ts";
 import type { SourceDocument, TimeOptions, ViewState, TimeResult } from "./model.ts";
 import { availableFields, parseDocument } from "./parsers.ts";
 import { ageX, interpretTime, classifyTree, timeBranchesConfirmed, validZeroAgePair, zeroAgeMean } from "./time.ts";
@@ -161,6 +161,7 @@ function setCanvasGeometry() {
   diagram.svg.style.height = `${diagram.height * view.zoom}px`;
   canvas.scrollLeft = view.panX; canvas.scrollTop = view.panY;
   element("zoom-label").textContent = `${Math.round(view.zoom * 100)}%`;
+  updateExportResolution();
 }
 function syncTimeViewControls() {
   select("time-range").value = view.autoRange ? "auto" : "manual";
@@ -173,11 +174,16 @@ function syncTimeViewControls() {
   })) input(id).checked = value;
 }
 function updateModeUI() {
+  const tree = currentTree();
+  input("background-color").disabled = view.backgroundTransparent;
   const time = isTimeMode(view.mode) && result.valid;
   const noTimeData = availableFields(currentTree()).length === 0 &&
     !currentTree().nodes.some(n => ["root_age", "node_age", "tip_age", "calibration_age"].some(key => Object.hasOwn(n.annotations, key)));
   const rawBranches = view.mode === "phylogram" || view.mode === "relative";
   element("time-interpretation").hidden = false;
+  element("branch-time-confirmation").hidden = !hasBranchLengths(tree) || !hasCompleteBranchLengths(tree) ||
+    tree.rooted === false || timeBranchesConfirmed(tree, { ...options, branchTimeConfirmed: false }) ||
+    (view.mode === "dated" && !options.branchTimeConfirmed);
   element("diagnostics-section").hidden = noTimeData && !timeBranchesConfirmed(currentTree(), options);
   element("diagnostics-title").textContent = t("年代來源檢核");
   element("time-axis-settings").hidden = !time;
@@ -226,6 +232,7 @@ function render() {
     render();
   });
   diagram = next;
+  canvas.style.backgroundColor = view.backgroundTransparent ? "transparent" : view.backgroundColor;
   canvas.replaceChildren(diagram.svg);
   setCanvasGeometry();
   updateMetadata();
@@ -254,10 +261,11 @@ function syncControls() {
   }
   ageField.value = options.field;
   for (const [id, value] of Object.entries({
-    "font-size": view.fontSize, "line-width": view.lineWidth, "branch-color": view.branchColor
+    "font-size": view.fontSize, "line-width": view.lineWidth, "branch-color": view.branchColor, "background-color": view.backgroundColor
   })) input(id).value = String(value);
   for (const [id, value] of Object.entries({
-    "root-stem": view.rootStem, names: view.names, support: view.support, "tree-name": view.treeName, "age-range": view.ageRange
+    "root-stem": view.rootStem, names: view.names, support: view.support, "tree-name": view.treeName, "age-range": view.ageRange,
+    "background-transparent": view.backgroundTransparent
   })) input(id).checked = value;
   select("order").value = view.order;
 }
@@ -348,6 +356,8 @@ function readView(): ViewState {
   const common: ViewState = {
     ...view, rootStyle: select("root-style").value === "solid" ? "solid" : "hollow", rootStem: input("root-stem").checked,
     fontSize: readNumber("font-size", 8, 32)!, branchColor: input("branch-color").value, lineWidth: readNumber("line-width", 0.5, 6)!,
+    backgroundColor: input("background-color").value,
+    backgroundTransparent: input("background-transparent").checked,
     names: input("names").checked, support: input("support").checked,
     treeName: input("tree-name").checked, ageRange: input("age-range").checked,
     order: order === "ascending" ? "ascending" : order === "descending" ? "descending" : "original"
@@ -418,7 +428,7 @@ evidenceInput.addEventListener("change", action(() => {
   options.evidence = evidenceInput.value.trim();
   updateDiagnostics();
 }));
-for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "font-size", "branch-color", "line-width", "names", "ages", "all-tips", "support", "simplified", "order", "tree-name", "age-range"]) {
+for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "font-size", "branch-color", "background-color", "background-transparent", "line-width", "names", "ages", "all-tips", "support", "simplified", "order", "tree-name", "age-range"]) {
   element(id).addEventListener("change", action(() => {
     if (!doc) return;
     const next = readView();
@@ -440,7 +450,7 @@ bind("fit", () => {
   view.zoom = Math.max(0.25, Math.min(1, canvas.clientWidth / diagram.width, canvas.clientHeight / diagram.height));
   view.panX = 0; view.panY = 0; setCanvasGeometry();
 });
-canvas.addEventListener("scroll", () => { view.panX = canvas.scrollLeft; view.panY = canvas.scrollTop; });
+canvas.addEventListener("scroll", () => { view.panX = canvas.scrollLeft; view.panY = canvas.scrollTop; updateExportResolution(); });
 canvas.addEventListener("wheel", e => {
   if (e.ctrlKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1); }
 }, { passive: false });
@@ -505,27 +515,46 @@ bind("save", () => {
 });
 bind("original", () => { if (doc) download(doc.content, "text/plain;charset=utf-8", doc.filename); });
 bind("csv", () => { if (doc) download(nodeCSV(currentTree(), result, options, view.mode), "text/csv;charset=utf-8", "tree-nodes.csv"); });
+function exportBounds(scope: string) {
+  if (!diagram) throw new Error(t("請先開啟樹檔。"));
+  const left = canvas.scrollLeft / view.zoom, bodyTop = canvas.scrollTop / view.zoom;
+  return scope === "viewport"
+    ? {
+      left, bodyTop,
+      width: Math.min(diagram.width - left, canvas.clientWidth / view.zoom),
+      height: Math.min(diagram.height - bodyTop, canvas.clientHeight / view.zoom) + 65
+    }
+    : { left: 0, bodyTop: 0, width: diagram.width, height: diagram.height };
+}
+function updateExportResolution() {
+  if (!diagram) return;
+  const scale = Number(select("png-scale").value);
+  for (const [scope, id] of [["full", "full-resolution"], ["viewport", "viewport-resolution"]]) {
+    const { width, height } = exportBounds(scope);
+    element(id).textContent = `${Math.ceil(width) * scale} × ${Math.ceil(height) * scale} px`;
+  }
+}
+select("png-scale").addEventListener("change", updateExportResolution);
+new ResizeObserver(updateExportResolution).observe(canvas);
+
 function exportSVG(): { text: string; width: number; height: number } {
   if (!diagram) throw new Error(t("請先開啟樹檔。"));
   const svg = diagram.svg.cloneNode(true);
   if (!(svg instanceof SVGSVGElement)) throw new Error(t("SVG 複製失敗。"));
   svg.removeAttribute("style");
-  let width = diagram.width, height = diagram.height;
+  const { width, height, left, bodyTop } = exportBounds(select("export-scope").value);
   if (select("export-scope").value === "viewport") {
-    width = Math.min(diagram.width - canvas.scrollLeft / view.zoom, canvas.clientWidth / view.zoom);
-    height = Math.min(diagram.height - canvas.scrollTop / view.zoom, canvas.clientHeight / view.zoom);
-    const left = canvas.scrollLeft / view.zoom, bodyTop = canvas.scrollTop / view.zoom, top = bodyTop - 65;
+    const top = bodyTop - 65;
     const body = svgElement("g", { "clip-path": "url(#export-viewport-clip)" });
     while (svg.firstChild) body.append(svg.firstChild);
     const defs = svgElement("defs"), clip = svgElement("clipPath", { id: "export-viewport-clip" });
-    clip.append(svgElement("rect", { x: left, y: bodyTop, width, height }));
+    clip.append(svgElement("rect", { x: left, y: bodyTop, width, height: height - 65 }));
     defs.append(clip); svg.append(defs, body);
-    height += 65;
     svg.setAttribute("viewBox", `${left} ${top} ${width} ${height}`);
     // Keep an explicit axis in a vertically scrolled export instead of silently
     // cropping away the only indication that the horizontal coordinate is Ma.
     const header = svgElement("g", { "data-export-axis": "viewport" });
-    header.append(svgElement("rect", { x: left, y: top, width, height: 65, fill: "#ffffff" }));
+    header.append(svgElement("rect", { x: left, y: top, width, height: 65, fill: view.backgroundTransparent ? "none" : view.backgroundColor }));
     header.append(svgElement("text", { x: left + 10, y: top + 18, fill: "#203f3c", "font-size": 12, "font-family": "sans-serif" },
       `${view.treeName ? `${currentTree().name} · ` : ""}${DIAGRAM_MODE_LABELS[view.mode]} · Current view`));
     if (diagram.ticks.length) {
@@ -562,7 +591,10 @@ bind("png", async () => {
     await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error(t("PNG 圖像載入失敗。"))); image.src = url; });
     const surface = document.createElement("canvas"); surface.width = width; surface.height = height;
     const ctx = surface.getContext("2d"); if (!ctx) throw new Error(t("無法建立 PNG 畫布。"));
-    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, width, height); ctx.drawImage(image, 0, 0, width, height);
+    if (!view.backgroundTransparent) {
+      ctx.fillStyle = view.backgroundColor; ctx.fillRect(0, 0, width, height);
+    }
+    ctx.drawImage(image, 0, 0, width, height);
     const blob = await new Promise<Blob>((resolve, reject) => surface.toBlob(b => b ? resolve(b) : reject(new Error(t("PNG 轉換失敗。"))), "image/png"));
     download(blob, "image/png", "paleotree.png");
   } finally { URL.revokeObjectURL(url); }

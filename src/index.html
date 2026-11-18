@@ -31,8 +31,10 @@
         <p id="source-status" class="hint" role="status"><span data-i18n="載入後依年代資訊自動分類；不以枝長數值推測時間語意。">載入後依年代資訊自動分類；不以枝長數值推測時間語意。</span></p>
         <div id="time-interpretation">
         <p class="hint"><span data-i18n="顯示既有定年結果，不重新定年。">顯示既有定年結果，不重新定年。</span></p>
-        <label class="check"><input id="branch-time" type="checkbox"><span data-i18n="已確認枝長代表時間">已確認枝長代表時間</span></label>
-        <p class="hint"><span data-i18n="僅在原分析確定枝長代表時間時勾選。亦接受根節點註解 branch_length_unit=Ma 或 relative_time。沒有絕對錨點時不顯示 Ma。">僅在原分析確定枝長代表時間時勾選。亦接受根節點註解 branch_length_unit=Ma 或 relative_time。沒有絕對錨點時不顯示 Ma。</span></p>
+        <div id="branch-time-confirmation" hidden>
+          <label class="check"><input id="branch-time" type="checkbox"><span data-i18n="已確認枝長代表時間">已確認枝長代表時間</span></label>
+          <p class="hint"><span data-i18n="僅在原分析確定枝長代表時間時勾選。亦接受根節點註解 branch_length_unit=Ma 或 relative_time。沒有絕對錨點時不顯示 Ma。">僅在原分析確定枝長代表時間時勾選。亦接受根節點註解 branch_length_unit=Ma 或 relative_time。沒有絕對錨點時不顯示 Ma。</span></p>
+        </div>
         <details id="source-settings"><summary><span data-i18n="進階：年代來源">進階：年代來源</span></summary>
           <label><span data-i18n="來源選擇">來源選擇</span><select id="method" aria-describedby="source-status"><option value="auto" data-i18n="自動判斷（預設）">自動判斷（預設）</option><option id="method-nodes" value="nodes" data-i18n="明確節點年代">明確節點年代</option><option id="method-branches" value="branches" data-i18n="時間枝長＋既有年代錨點">時間枝長＋既有年代錨點</option></select></label>
           <p id="source-comparison" class="hint"></p>
@@ -74,6 +76,8 @@
         <label><span data-i18n="年代標籤小數位">年代標籤小數位</span><input id="decimals" type="number" min="0" max="6" step="1" value="2"></label>
         </div>
         <label><span data-i18n="字級（px）">字級（px）</span><input id="font-size" type="number" min="8" max="32" value="13"></label>
+        <label><span data-i18n="背景顏色">背景顏色</span><input id="background-color" type="color" value="#ffffff"></label>
+        <label class="check"><input id="background-transparent" type="checkbox"><span data-i18n="背景透明">背景透明</span></label>
         <div class="two-col"><label><span data-i18n="枝條顏色">枝條顏色</span><input id="branch-color" type="color" value="#254b48"></label><label><span data-i18n="枝條線寬">枝條線寬</span><input id="line-width" type="number" min="0.5" max="6" step="0.5" value="1.5"></label></div>
         <div class="two-col"><label class="check"><input id="names" type="checkbox" checked><span data-i18n="節點名稱">節點名稱</span></label><label class="check"><input id="support" type="checkbox"><span data-i18n="支持度">支持度</span></label></div>
         <div id="time-label-settings">
@@ -99,7 +103,14 @@
       </div>
       <footer class="export-bar">
         <label><span data-i18n="匯出範圍">匯出範圍</span><select id="export-scope"><option value="full" data-i18n="全樹">全樹</option><option value="viewport" data-i18n="目前視窗">目前視窗</option></select></label>
-        <button id="svg" disabled>SVG</button><label><span data-i18n="PNG 倍率">PNG 倍率</span><select id="png-scale"><option>1</option><option>2</option><option>3</option></select></label><button id="png" disabled>PNG</button>
+        <button id="svg" disabled>SVG</button><label><span data-i18n="PNG 倍率">PNG 倍率</span><select id="png-scale"><option>1</option><option>2</option><option>3</option></select></label>
+        <div class="png-export">
+          <button id="png" disabled>PNG</button>
+          <div class="export-resolution" aria-live="polite" aria-label="PNG 解析度" data-i18n-aria-label="PNG 解析度">
+          <span><span data-i18n="全樹">全樹</span>: <output id="full-resolution">—</output></span>
+          <span><span data-i18n="目前視窗">目前視窗</span>: <output id="viewport-resolution">—</output></span>
+          </div>
+        </div>
         <button id="csv" disabled><span data-i18n="節點資料 CSV">節點資料 CSV</span></button><button id="original" disabled><span data-i18n="原始檔">原始檔</span></button>
       </footer>
     </section>

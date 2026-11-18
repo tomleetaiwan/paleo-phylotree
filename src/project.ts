@@ -10,7 +10,7 @@ export function defaultView(): ViewState {
   return {
     mode: "cladogram", rootStyle: "hollow", rootStem: false, grid: true, minorGrid: false, gridColor: "#d1d5db", gridOpacity: 0.5,
     gridStep: null, autoRange: true, older: null, younger: 0, decimals: 2, fontSize: 13, lineWidth: 1.5,
-    branchColor: "#254b48", names: true, treeName: true, ageRange: true, ages: true, allTips: false, support: false,
+    branchColor: "#254b48", backgroundColor: "#ffffff", backgroundTransparent: false, names: true, treeName: true, ageRange: true, ages: true, allTips: false, support: false,
     simplified: false, collapsed: [], order: "original", selected: null, zoom: 1, panX: 0, panY: 0
   };
 }
@@ -69,6 +69,8 @@ export function loadProject(text: string): { doc: SourceDocument; selectedTree: 
     !["grid", "minorGrid", "names", "ages", "allTips", "support", "simplified"].every(k => typeof v[k] === "boolean") ||
     !["treeName", "ageRange"].every(k => v[k] === undefined || typeof v[k] === "boolean") ||
     !color(v.gridColor) || !color(v.branchColor) || !finite(v.gridOpacity, 0, 1) ||
+    (v.backgroundColor !== undefined && !color(v.backgroundColor)) ||
+    (v.backgroundTransparent !== undefined && typeof v.backgroundTransparent !== "boolean") ||
     (v.gridStep !== null && !finite(v.gridStep, Number.MIN_VALUE, 1e15)) ||
     (v.older !== null && !finite(v.older, 0, 1e15)) || !finite(v.younger, 0, 1e15) ||
     !finite(v.decimals, 0, 6) || !Number.isInteger(v.decimals) || !finite(v.fontSize, 8, 32) ||
@@ -102,6 +104,8 @@ export function loadProject(text: string): { doc: SourceDocument; selectedTree: 
     mode, order: v.order,
     grid: v.grid === true, minorGrid: v.minorGrid === true, names: v.names === true, ages: v.ages === true, allTips: v.allTips === true,
     support: v.support === true, simplified: v.simplified === true, gridColor: v.gridColor, branchColor: v.branchColor,
+    backgroundColor: v.backgroundColor === undefined ? "#ffffff" : v.backgroundColor,
+    backgroundTransparent: v.backgroundTransparent === true,
     gridOpacity: v.gridOpacity, gridStep: v.gridStep, autoRange: v.autoRange, older: v.older, younger: v.younger, decimals: v.decimals,
     fontSize: v.fontSize, lineWidth: v.lineWidth, zoom: v.zoom, panX: v.panX, panY: v.panY,
     selected: typeof v.selected === "string" ? v.selected : null,

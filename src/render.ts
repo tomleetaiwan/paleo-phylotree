@@ -286,7 +286,8 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   const height = Math.max(540, bottom + 80);
   const svg = svgElement("svg", { xmlns: NS, width, height, viewBox: `0 0 ${width} ${height}`, role: "img",
     "data-mode": view.mode, "aria-label": DIAGRAM_MODE_LABELS[view.mode] });
-  svg.append(svgElement("rect", { width, height, fill: "#ffffff" }));
+  const background = view.backgroundTransparent ? "none" : view.backgroundColor;
+  svg.append(svgElement("rect", { width, height, fill: background }));
   svg.append(svgElement("title", {}, `${tree.name} — ${VIEW_MODE_LABELS[view.mode]} — ${axisTitle}`));
   if (view.treeName) svg.append(svgElement("text", { x: plotLeft, y: 24, fill: "#203f3c", "font-size": 14, "font-family": "sans-serif", "data-label-kind": "tree-name" }, tree.name));
   svg.append(svgElement("text", {
@@ -362,7 +363,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     const hollow = n.id === tree.rootId ? view.rootStyle === "hollow" : !chosen && n.children.length > 0;
     const marker = p.collapsed
       ? svgElement("path", { d: `M${p.x},${p.y - 7}L${p.x + 12},${p.y}L${p.x},${p.y + 7}Z`, fill: view.branchColor })
-      : svgElement("circle", { cx: p.x, cy: p.y, r: chosen ? 5 : 3.2, fill: hollow ? "#ffffff" : chosen ? "#bb5b31" : view.branchColor, stroke: view.branchColor, "stroke-width": chosen ? 2 : 1.3 });
+      : svgElement("circle", { cx: p.x, cy: p.y, r: chosen ? 5 : 3.2, fill: hollow ? background : chosen ? "#bb5b31" : view.branchColor, stroke: view.branchColor, "stroke-width": chosen ? 2 : 1.3 });
     group.append(svgElement("circle", { cx: p.x, cy: p.y, r: 10, fill: "transparent" }), marker);
     if (chosen) group.append(svgElement("circle", { cx: p.x, cy: p.y, r: 10, fill: "none", stroke: "#bb5b31", "stroke-dasharray": "3 2" }));
     group.append(svgElement("title", {}, `${n.name || n.id}\n${time ? `${ageText}\n${result.sources[n.id] ?? "Not provided"}\n` : ""}Branch length: ${n.length ?? "Not provided"}\nSupport: ${n.support ?? "Not provided"}`));
@@ -373,7 +374,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
       labels.append(svgElement("text", {
         x: p.x + label.x, y: p.y + label.baseline, fill: label.color, "font-size": label.size,
         "data-label-kind": label.kind, "data-label-node": n.id,
-        ...(label.kind === "age" ? { stroke: "#ffffff", "stroke-width": 3, "paint-order": "stroke", "stroke-linejoin": "round", "data-age-label": n.id } : {})
+        ...(label.kind === "age" ? { stroke: background, "stroke-width": 3, "paint-order": "stroke", "stroke-linejoin": "round", "data-age-label": n.id } : {})
       }, label.text));
     }
   }
