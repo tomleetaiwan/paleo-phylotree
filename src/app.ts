@@ -9,7 +9,7 @@ import type { SourceDocument, TimeOptions, ViewState, TimeResult } from "./model
 import { availableFields, parseDocument } from "./parsers.ts";
 import { ageX, interpretTime, classifyTree, timeBranchesConfirmed, validZeroAgePair, zeroAgeMean } from "./time.ts";
 import { defaultTime, defaultView, loadProject, nodeCSV, saveProject } from "./project.ts";
-import { DIAGRAM_MODE_LABELS, drawTree, svgElement } from "./render.ts";
+import { DIAGRAM_MODE_LABELS, drawTree, drawScaleBar, svgElement } from "./render.ts";
 import type { Diagram } from "./render.ts";
 
 localizeDocument(document, resolveLocale(navigator.languages, navigator.language));
@@ -46,14 +46,15 @@ let result: TimeResult = { valid: false, ages: {}, sources: {}, intervals: {}, e
 let diagram: Diagram | null = null;
 let loadSequence = 0;
 
-function message(text: string, type = "") {
+function message(text: string, type = "", source = "") {
   const el = element("notice");
   el.textContent = text; el.className = type;
   el.setAttribute("role", type === "error" ? "alert" : "status");
+  el.dataset.messageSource = source;
 }
-function report(err: unknown) {
+function report(err: unknown, source = "") {
   console.error(err);
-  message(err instanceof Error ? err.message : t("操作失敗，請檢查輸入資料。"), "error");
+  message(err instanceof Error ? err.message : t("操作失敗，請檢查輸入資料。"), "error", source);
 }
 function action(fn: () => void | Promise<void>): () => void {
   return () => { Promise.resolve().then(fn).catch(report); };
@@ -187,6 +188,8 @@ function updateModeUI() {
   element("diagnostics-section").hidden = noTimeData && !timeBranchesConfirmed(currentTree(), options);
   element("diagnostics-title").textContent = t("年代來源檢核");
   element("time-axis-settings").hidden = !time;
+  element("compact-setting").hidden = view.mode === "cladogram";
+  input("compact").disabled = view.mode === "cladogram";
   element("time-label-settings").hidden = !time;
   element("style-title").textContent = time ? t("時間軸與樣式") : t("樹圖樣式");
   element("mode-description").textContent = view.mode === "dated"
@@ -265,7 +268,7 @@ function syncControls() {
   })) input(id).value = String(value);
   for (const [id, value] of Object.entries({
     "root-stem": view.rootStem, names: view.names, support: view.support, "tree-name": view.treeName, "age-range": view.ageRange,
-    "background-transparent": view.backgroundTransparent
+    "background-transparent": view.backgroundTransparent, compact: view.compact
   })) input(id).checked = value;
   select("order").value = view.order;
 }
@@ -282,7 +285,7 @@ function commitDocument(nextDoc: SourceDocument, index = 0, nextOptions = defaul
     const opt = document.createElement("option"); opt.value = String(i); opt.textContent = `${i + 1}. ${tree.name}`; selector.append(opt);
   }
   selector.value = String(index);
-  for (const id of ["save", "apply-time", "find", "fit", "zoom-in", "zoom-out", "svg", "png", "csv", "original", "expand-all"]) button(id).disabled = false;
+  for (const id of ["save", "apply-time", "find", "fit", "zoom-in", "zoom-out", "zoom-label", "svg", "png", "csv", "original", "expand-all"]) button(id).disabled = false;
   syncControls(); updateMetadata(); render();
 }
 async function openFile(file: File) {
@@ -360,6 +363,7 @@ function readView(): ViewState {
     backgroundTransparent: input("background-transparent").checked,
     names: input("names").checked, support: input("support").checked,
     treeName: input("tree-name").checked, ageRange: input("age-range").checked,
+    compact: input("compact").checked,
     order: order === "ascending" ? "ascending" : order === "descending" ? "descending" : "original"
   };
   if (!isTimeMode(view.mode)) return common;
@@ -428,7 +432,7 @@ evidenceInput.addEventListener("change", action(() => {
   options.evidence = evidenceInput.value.trim();
   updateDiagnostics();
 }));
-for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "font-size", "branch-color", "background-color", "background-transparent", "line-width", "names", "ages", "all-tips", "support", "simplified", "order", "tree-name", "age-range"]) {
+for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "grid-step", "grid", "minor-grid", "grid-color", "grid-opacity", "decimals", "font-size", "branch-color", "background-color", "background-transparent", "line-width", "names", "ages", "all-tips", "support", "simplified", "order", "tree-name", "age-range", "compact"]) {
   element(id).addEventListener("change", action(() => {
     if (!doc) return;
     const next = readView();
@@ -437,14 +441,15 @@ for (const id of ["root-style", "root-stem", "time-range", "older", "younger", "
     message(isTimeMode(view.mode) && view.simplified ? t("已簡化標籤：保留末端名稱與選取節點標籤；其他資訊可點選節點查看。") : t("檢視設定已更新。"));
   }));
 }
-function zoom(factor: number) {
+function zoomTo(value: number) {
   if (!diagram) return;
-  const old = view.zoom, next = Math.min(16, Math.max(0.25, old * factor));
+  const old = view.zoom, next = Math.min(16, Math.max(0.25, value));
   view.panX = (canvas.scrollLeft + canvas.clientWidth / 2) * next / old - canvas.clientWidth / 2;
   view.panY = (canvas.scrollTop + canvas.clientHeight / 2) * next / old - canvas.clientHeight / 2;
   view.zoom = next; setCanvasGeometry();
 }
-bind("zoom-in", () => zoom(1.25)); bind("zoom-out", () => zoom(0.8));
+bind("zoom-in", () => zoomTo(view.zoom * 1.25)); bind("zoom-out", () => zoomTo(view.zoom * 0.8));
+bind("zoom-label", () => zoomTo(1));
 bind("fit", () => {
   if (!diagram) return;
   view.zoom = Math.max(0.25, Math.min(1, canvas.clientWidth / diagram.width, canvas.clientHeight / diagram.height));
@@ -452,11 +457,11 @@ bind("fit", () => {
 });
 canvas.addEventListener("scroll", () => { view.panX = canvas.scrollLeft; view.panY = canvas.scrollTop; updateExportResolution(); });
 canvas.addEventListener("wheel", e => {
-  if (e.ctrlKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1); }
+  if (e.ctrlKey) { e.preventDefault(); zoomTo(view.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); }
 }, { passive: false });
 canvas.addEventListener("keydown", e => {
   if (e.target !== canvas) return;
-  if (["+", "=", "-"].includes(e.key)) { e.preventDefault(); zoom(e.key === "-" ? 0.8 : 1.25); }
+  if (["+", "=", "-"].includes(e.key)) { e.preventDefault(); zoomTo(view.zoom * (e.key === "-" ? 0.8 : 1.25)); }
   const delta = ({ ArrowLeft: [-70, 0], ArrowRight: [70, 0], ArrowUp: [0, -70], ArrowDown: [0, 70] } as Record<string, number[]>)[e.key];
   if (delta) { e.preventDefault(); canvas.scrollBy(delta[0], delta[1]); }
 });
@@ -479,10 +484,16 @@ canvas.addEventListener("drop", e => {
 });
 bind("find", () => {
   const query = input("search").value.trim().toLocaleLowerCase();
-  if (!query) throw new Error(t("請輸入分類群名稱或節點 ID。"));
+  if (!query) {
+    report(new Error(t("請輸入分類群名稱或節點 ID。")), "search");
+    return;
+  }
   const tree = currentTree();
   const matches = tree.nodes.filter(n => n.id.toLowerCase() === query || n.name.toLocaleLowerCase().includes(query));
-  if (!matches.length) throw new Error(t("找不到符合的分類群或節點。"));
+  if (!matches.length) {
+    report(new Error(t("找不到符合的分類群或節點。")), "search");
+    return;
+  }
   const index = matches.findIndex(n => n.id === view.selected), node = matches[(index + 1) % matches.length];
   const map = new Map(tree.nodes.map(n => [n.id, n]));
   let parent = node.parentId;
@@ -496,6 +507,9 @@ bind("find", () => {
   message(t("已定位 {0}（{1}）；共 {2} 筆，再按定位可循環。", node.name || node.id, node.id, matches.length), "success");
 });
 input("search").addEventListener("keydown", e => { if (e.key === "Enter") button("find").click(); });
+input("search").addEventListener("input", () => {
+  if (element("notice").dataset.messageSource === "search") message("");
+});
 bind("collapse", () => {
   const node = currentTree().nodes.find(n => n.id === view.selected);
   if (!node?.children.length) throw new Error(t("請先選取內部節點。"));
@@ -557,7 +571,9 @@ function exportSVG(): { text: string; width: number; height: number } {
     header.append(svgElement("rect", { x: left, y: top, width, height: 65, fill: view.backgroundTransparent ? "none" : view.backgroundColor }));
     header.append(svgElement("text", { x: left + 10, y: top + 18, fill: "#203f3c", "font-size": 12, "font-family": "sans-serif" },
       `${view.treeName ? `${currentTree().name} · ` : ""}${DIAGRAM_MODE_LABELS[view.mode]} · Current view`));
-    if (diagram.ticks.length) {
+    if (view.compact && view.mode !== "cladogram") {
+      header.append(drawScaleBar(diagram, left + 10, top + 55, width - 20));
+    } else if (diagram.ticks.length) {
       header.append(svgElement("text", {
         x: left + 10, y: top + 40, fill: "#526966", "font-size": 12, "font-family": "sans-serif", "data-axis-title": "time"
       }, diagram.axisTitle));

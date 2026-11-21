@@ -57,6 +57,8 @@ for (const [mode, filename, label, axis, distances] of [
     const svg = page.locator("#canvas svg");
     await expect(svg).toHaveAttribute("data-mode", mode);
     await expect(svg.locator("[data-axis-title]")).toHaveText(axis);
+    await expect(svg.locator('[data-label-kind="tree-name"]')).toHaveAttribute("x",
+      await svg.locator("[data-axis-title]").getAttribute("x"));
     await expect(svg).not.toContainText(/[\u3400-\u9fff]/u);
     if (mode !== "dated") {
       await expect(svg.locator('[data-label-kind="name"]')).toHaveText(
@@ -171,6 +173,55 @@ for (const mode of ["relative", "phylogram", "cladogram"]) {
     expect(await check(svg)).toEqual(xs);
   });
 }
+
+test("zoom percentage resets to exact original size with mouse and keyboard", async ({ page }, testInfo) => {
+  const reset = page.locator("#zoom-label");
+  await expect(reset).toBeDisabled();
+  await page.locator("#demo").selectOption("cladogram");
+  await expect(reset).toBeEnabled();
+  for (const [control, key] of [["zoom-in", null], ["zoom-out", "Enter"], ["fit", "Space"]]) {
+    await page.locator(`#${control}`).click();
+    await expect(reset).not.toHaveText("100%");
+    if (key) {
+      await reset.focus();
+      await reset.press(key);
+    } else await reset.click();
+    await expect(reset).toHaveText("100%");
+    const dimensions = await page.locator("#canvas svg").evaluate(svg => ({
+      actualWidth: parseFloat(svg.style.width), actualHeight: parseFloat(svg.style.height),
+      originalWidth: Number(svg.getAttribute("width")), originalHeight: Number(svg.getAttribute("height"))
+    }));
+    expect(dimensions.actualWidth).toBe(dimensions.originalWidth);
+    expect(dimensions.actualHeight).toBe(dimensions.originalHeight);
+  }
+  const saved = JSON.parse(await readFile(await download(page, "save", testInfo, "original-size.json"), "utf8"));
+  expect(saved.view.zoom).toBe(1);
+});
+
+test("successful search replaces errors from empty and unmatched queries", async ({ page }) => {
+  await page.locator("#demo").selectOption("cladogram");
+  const notice = page.locator("#notice");
+  for (const query of ["", "   ", "no-matching-taxon"]) {
+    await page.locator("#search").fill(query);
+    await page.locator("#find").click();
+    await expect(notice).toHaveClass("error");
+    await expect(notice).toHaveAttribute("role", "alert");
+    await page.locator("#search").fill("OTU03");
+    await expect(notice).not.toHaveClass("error");
+    await expect(notice).toHaveAttribute("role", "status");
+    await page.locator("#find").click();
+    await expect(notice).toHaveClass("success");
+    await expect(notice).toHaveAttribute("role", "status");
+    await expect(notice).toContainText("已定位 OTU03");
+    await expect(page.locator("#node-info")).toContainText("OTU03");
+  }
+  await upload(page, "invalid.tre", "(A:-1,B);");
+  await expect(notice).toHaveClass("error");
+  const importError = await notice.textContent();
+  await page.locator("#search").fill("OTU04");
+  await expect(notice).toHaveClass("error");
+  await expect(notice).toHaveText(importError);
+});
 
 test("unknown tip dates are dashed, never invented as zero and remain blank in CSV", async ({ page }, testInfo) => {
   await upload(page, "unknown-tips.nex", "#NEXUS begin trees; tree x=[&R]((A,B)[&age=385],C)[&age=420]; end;");
@@ -546,6 +597,88 @@ test("tree name and age range toggle independently and persist in projects and e
   await expect(title).toHaveCount(1);
   await page.locator("#tree-name").uncheck();
   await expect(title).toHaveCount(0);
+});
+
+for (const mode of ["dated", "chronogram", "relative", "phylogram"]) {
+  test(`${mode} compact mode preserves quantitative scale in projects and exports`, async ({ page }, testInfo) => {
+    await page.locator("#demo").selectOption(mode);
+    const svg = page.locator("#canvas svg");
+    await expect(page.locator("#compact")).not.toBeChecked();
+    const branches = await svg.locator('[data-layer="branches"]').evaluate(el => el.outerHTML);
+    const grid = await svg.locator('[data-layer="grid"]').evaluate(el => el.outerHTML);
+    await page.locator("#compact").check();
+    await expect(svg.locator("[data-axis-title], [data-layer=grid]")).toHaveCount(0);
+    const bar = svg.locator('[data-layer="scale-bar"]');
+    await expect(bar).toHaveCount(1);
+    await expect(svg.locator('[data-label-kind="tree-name"]')).toHaveAttribute("x",
+      await bar.locator("text").getAttribute("x"));
+    await expect(bar).toContainText(mode === "dated" || mode === "chronogram" ? "Ma" : mode === "relative" ? "Relative time" : "Branch length");
+    if (mode === "relative" || mode === "phylogram") await expect(bar).not.toContainText("Ma");
+    expect(await svg.locator('[data-layer="branches"]').evaluate(el => el.outerHTML)).toBe(branches);
+    const geometry = await svg.evaluate(el => {
+      const bar = el.querySelector('[data-layer="scale-bar"]');
+      const line = bar.querySelector("line");
+      const axisWidth = Number(el.querySelector("#tree-clip rect").getAttribute("width")) - 14;
+      return { value: Number(bar.dataset.scaleValue), span: Number(bar.dataset.scaleSpan), axisWidth,
+        length: Number(line.getAttribute("x2")) - Number(line.getAttribute("x1")) };
+    });
+    expect(geometry.value).toBeGreaterThan(0);
+    expect(geometry.length).toBeCloseTo(geometry.value / geometry.span * geometry.axisWidth, 8);
+    for (const scope of ["full", "viewport"]) {
+      await page.locator("#export-scope").selectOption(scope);
+      if (scope === "viewport") {
+        await page.locator("#zoom-in").click();
+        await page.locator("#canvas").evaluate(el => { el.scrollTop = 150; el.scrollLeft = 60; });
+      }
+      const text = await readFile(await download(page, "svg", testInfo, `${mode}-${scope}-compact.svg`), "utf8");
+      const exported = await page.evaluate(text => {
+        const doc = new DOMParser().parseFromString(text, "image/svg+xml");
+        const header = doc.querySelector('[data-export-axis="viewport"]') ?? doc.documentElement;
+        const bar = header.querySelector('[data-layer="scale-bar"]'), line = bar.querySelector("line");
+        return { axes: doc.querySelectorAll("[data-axis-title], [data-layer=grid]").length,
+          value: Number(bar.dataset.scaleValue), span: Number(bar.dataset.scaleSpan),
+          length: Number(line.getAttribute("x2")) - Number(line.getAttribute("x1")) };
+      }, text);
+      expect(exported.axes).toBe(0);
+      expect(exported.length).toBeCloseTo(exported.value / exported.span * geometry.axisWidth, 8);
+      const png = await readFile(await download(page, "png", testInfo, `${mode}-${scope}-compact.png`));
+      expect(png.subarray(1, 4).toString()).toBe("PNG");
+    }
+    const saved = await download(page, "save", testInfo, `${mode}-compact.json`);
+    await page.reload();
+    await page.locator("#file").setInputFiles(saved);
+    await expect(page.locator("#compact")).toBeChecked();
+    await expect(bar).toHaveCount(1);
+    await page.locator("#style-settings > summary").click();
+    await page.locator("#compact").uncheck();
+    expect(await svg.locator('[data-layer="grid"]').evaluate(el => el.outerHTML)).toBe(grid);
+    await page.locator("#demo").selectOption("cladogram");
+    await expect(page.locator("#compact")).toBeHidden();
+    await expect(page.locator("#compact")).toBeDisabled();
+    await expect(bar).toHaveCount(0);
+  });
+}
+
+test("compact scale bars handle tiny, zero and missing branch lengths without inventing units", async ({ page }) => {
+  for (const [text, zero, missing] of [
+    ["(A:0,B:0);", true, false],
+    ["(A:1e-12,B:2e-12);", false, false],
+    ["(A:0.1,B);", false, true]
+  ]) {
+    await upload(page, "scale.nwk", text);
+    await page.locator("#compact").check();
+    const bar = page.locator('#canvas [data-layer="scale-bar"]');
+    await expect(bar).toContainText("Branch length:");
+    await expect(bar).not.toContainText("Ma");
+    if (zero) {
+      await expect(bar).toContainText("0 (zero span)");
+      await expect(bar.locator("line")).toHaveCount(0);
+    } else {
+      expect(Number(await bar.getAttribute("data-scale-value"))).toBeGreaterThan(0);
+      await expect(bar.locator("line")).toHaveCount(3);
+    }
+    await expect(page.locator('#canvas [data-unknown-length="true"]')).toHaveCount(missing ? 1 : 0);
+  }
 });
 
 test("root appearance changes only its marker and survives exports and project restore", async ({ page }, testInfo) => {

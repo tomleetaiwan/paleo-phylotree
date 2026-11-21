@@ -11,7 +11,7 @@ export function defaultView(): ViewState {
     mode: "cladogram", rootStyle: "hollow", rootStem: false, grid: true, minorGrid: false, gridColor: "#d1d5db", gridOpacity: 0.5,
     gridStep: null, autoRange: true, older: null, younger: 0, decimals: 2, fontSize: 13, lineWidth: 1.5,
     branchColor: "#254b48", backgroundColor: "#ffffff", backgroundTransparent: false, names: true, treeName: true, ageRange: true, ages: true, allTips: false, support: false,
-    simplified: false, collapsed: [], order: "original", selected: null, zoom: 1, panX: 0, panY: 0
+    simplified: false, compact: false, collapsed: [], order: "original", selected: null, zoom: 1, panX: 0, panY: 0
   };
 }
 export function defaultTime(): TimeOptions {
@@ -67,7 +67,7 @@ export function loadProject(text: string): { doc: SourceDocument; selectedTree: 
     typeof v.autoRange !== "boolean" ||
     (v.order !== "original" && v.order !== "ascending" && v.order !== "descending") ||
     !["grid", "minorGrid", "names", "ages", "allTips", "support", "simplified"].every(k => typeof v[k] === "boolean") ||
-    !["treeName", "ageRange"].every(k => v[k] === undefined || typeof v[k] === "boolean") ||
+    !["treeName", "ageRange", "compact"].every(k => v[k] === undefined || typeof v[k] === "boolean") ||
     !color(v.gridColor) || !color(v.branchColor) || !finite(v.gridOpacity, 0, 1) ||
     (v.backgroundColor !== undefined && !color(v.backgroundColor)) ||
     (v.backgroundTransparent !== undefined && typeof v.backgroundTransparent !== "boolean") ||
@@ -101,6 +101,7 @@ export function loadProject(text: string): { doc: SourceDocument; selectedTree: 
     rootStyle: v.rootStyle,
     rootStem: v.rootStem,
     treeName: v.treeName !== false, ageRange: v.ageRange !== false,
+    compact: v.compact === true,
     mode, order: v.order,
     grid: v.grid === true, minorGrid: v.minorGrid === true, names: v.names === true, ages: v.ages === true, allTips: v.allTips === true,
     support: v.support === true, simplified: v.simplified === true, gridColor: v.gridColor, branchColor: v.branchColor,

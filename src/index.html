@@ -66,6 +66,7 @@
         <label><span data-i18n="樹根外觀">樹根外觀</span><select id="root-style"><option value="hollow" data-i18n="空心圓">空心圓</option><option value="solid" data-i18n="實心圓">實心圓</option></select></label>
         <label class="check"><input id="root-stem" type="checkbox"><span data-i18n="顯示裝飾根幹">顯示裝飾根幹</span></label>
         <p class="hint"><span data-i18n="根幹以虛線表示，僅作裝飾，不代表時間長度。">根幹以虛線表示，僅作裝飾，不代表時間長度。</span></p>
+        <label id="compact-setting" class="check" hidden><input id="compact" type="checkbox"><span data-i18n="以比例尺取代橫軸">以比例尺取代橫軸</span></label>
         <div id="time-axis-settings">
         <label><span data-i18n="橫軸範圍">橫軸範圍</span><select id="time-range"><option value="auto" data-i18n="自動貼合樹的年代">自動貼合樹的年代</option><option value="manual" data-i18n="手動指定範圍">手動指定範圍</option></select></label>
         <p id="range-summary" class="hint"><span data-i18n="自動模式依全樹最老／最年輕年代保留少量邊界，不強制延伸至 0 Ma；Ma 比例仍為線性。">自動模式依全樹最老／最年輕年代保留少量邊界，不強制延伸至 0 Ma；Ma 比例仍為線性。</span></p>
@@ -82,7 +83,7 @@
         <div class="two-col"><label class="check"><input id="names" type="checkbox" checked><span data-i18n="節點名稱">節點名稱</span></label><label class="check"><input id="support" type="checkbox"><span data-i18n="支持度">支持度</span></label></div>
         <div id="time-label-settings">
         <label class="check"><input id="age-range" type="checkbox" checked><span data-i18n="顯示年代範圍">顯示年代範圍</span></label>
-        <div class="two-col"><label class="check"><input id="ages" type="checkbox" checked><span data-i18n="節點年代">節點年代</span></label><label class="check"><input id="all-tips" type="checkbox"><span data-i18n="包含 0 Ma 末端年代">包含 0 Ma 末端年代</span></label></div>
+        <div class="two-col"><label class="check"><input id="ages" type="checkbox" checked><span data-i18n="節點年代">節點年代</span></label><label class="check"><input id="all-tips" type="checkbox"><span data-i18n="包含末端年代">包含末端年代</span></label></div>
         <label class="check"><input id="simplified" type="checkbox"><span data-i18n="簡化標籤">簡化標籤</span></label>
         <p class="hint"><span data-i18n="簡化時，已勾選的標籤僅保留末端名稱與選取節點資訊；點選節點可查看完整資料。">簡化時，已勾選的標籤僅保留末端名稱與選取節點資訊；點選節點可查看完整資料。</span></p>
         </div>
@@ -95,7 +96,7 @@
     <section id="tree-workspace" class="workspace" aria-label="種系樹工作區" data-i18n-aria-label="種系樹工作區">
       <div class="canvas-toolbar">
         <div class="search"><input id="search" type="search" placeholder="搜尋分類群或節點 ID" data-i18n-placeholder="搜尋分類群或節點 ID" aria-label="搜尋分類群或節點 ID" data-i18n-aria-label="搜尋分類群或節點 ID"><button id="find" disabled><span data-i18n="定位">定位</span></button></div>
-        <div class="button-row"><button id="zoom-out" aria-label="縮小" data-i18n-aria-label="縮小" disabled>−</button><span id="zoom-label">100%</span><button id="zoom-in" aria-label="放大" data-i18n-aria-label="放大" disabled>＋</button><button id="fit" disabled><span data-i18n="適合視窗">適合視窗</span></button></div>
+        <div class="button-row"><button id="zoom-out" aria-label="縮小" data-i18n-aria-label="縮小" disabled>−</button><button id="zoom-label" aria-label="恢復原始尺寸（100%）" data-i18n-aria-label="恢復原始尺寸（100%）" title="恢復原始尺寸（100%）" data-i18n-title="恢復原始尺寸（100%）" disabled>100%</button><button id="zoom-in" aria-label="放大" data-i18n-aria-label="放大" disabled>＋</button><button id="fit" disabled><span data-i18n="適合視窗">適合視窗</span></button></div>
         <label class="sort-label"><span data-i18n="排序">排序</span><select id="order"><option value="original" data-i18n="原始順序">原始順序</option><option value="ascending" data-i18n="小群在上">小群在上</option><option value="descending" data-i18n="大群在上">大群在上</option></select></label>
       </div>
       <div id="canvas" tabindex="0" aria-label="樹畫布，滑鼠拖曳平移，Ctrl 加滾輪縮放" data-i18n-aria-label="樹畫布，滑鼠拖曳平移，Ctrl 加滾輪縮放">
@@ -118,7 +119,7 @@
     <aside id="inspector-pane" class="inspector">
       <section><h2><span data-i18n="節點資訊">節點資訊</span></h2><p class="hint"><span data-i18n="點選節點查看精確值；名稱及原始欄位不作改寫。">點選節點查看精確值；名稱及原始欄位不作改寫。</span></p><div id="node-info" class="details muted"><span data-i18n="尚未選取節點">尚未選取節點</span></div><button id="collapse" disabled><span data-i18n="折疊／展開此分支">折疊／展開此分支</span></button><button id="expand-all" disabled><span data-i18n="展開全部">展開全部</span></button></section>
       <section id="diagnostics-section" hidden><h2 id="diagnostics-title"><span data-i18n="年代來源檢核">年代來源檢核</span></h2><div id="diagnostics" class="diagnostics" aria-live="polite"></div></section>
-      <div class="research-note"><strong><span data-i18n="研究資料不變">研究資料不變</span></strong><p><span data-i18n="排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。">排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。</span></p><span>phylotree.js 2.6.1 · PaleoTree 0.2.0</span></div>
+      <div class="research-note"><strong><span data-i18n="研究資料不變">研究資料不變</span></strong><p><span data-i18n="排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。">排序、折疊與樣式只改變檢視，不會修改拓樸、枝長或原始年代。</span></p><span>phylotree.js 2.6.1 · PaleoTree 0.2.1</span></div>
     </aside>
   </main>
   <template id="license-notices"><pre>/*PROJECT_LICENSE*/</pre><pre>/*APP_LICENSES*/</pre></template>

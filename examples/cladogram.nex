@@ -3,12 +3,14 @@
  All taxa and relationships are fictional.
  Shared synthetic taxa: OTU01 through OTU15; shared strictly binary topology.
  Support values (prob) are fictional numbers for display only, not analysis results.
+ Missing node prob values are filled with random synthetic values in [0.71, 1],
+ for display testing only, NOT analysis results; existing values are preserved.
  No node ages, time anchors, or branch lengths are supplied.
  The rooted topology expresses relationships only, not elapsed time.]
 BEGIN TREES;
   TREE fictional_cladogram = [&R]
-    ((OTU01,OTU02)[&prob=0.96],
-     (((OTU03,OTU04),(OTU05,OTU06)),
-      (((OTU07,OTU08),(OTU09,OTU10)),
-       ((OTU11,OTU12),(OTU13,(OTU14,OTU15)))))[&prob=0.92]);
+    ((OTU01[&prob=0.914],OTU02[&prob=0.789])[&prob=0.96],
+     (((OTU03[&prob=0.876],OTU04[&prob=0.804])[&prob=1.000],(OTU05[&prob=0.781],OTU06[&prob=0.810])[&prob=0.712])[&prob=0.973],
+      (((OTU07[&prob=0.923],OTU08[&prob=0.809])[&prob=0.940],(OTU09[&prob=0.728],OTU10[&prob=0.927])[&prob=0.714])[&prob=0.963],
+       ((OTU11[&prob=0.806],OTU12[&prob=0.747])[&prob=0.844],(OTU13[&prob=0.736],(OTU14[&prob=0.758],OTU15[&prob=0.910])[&prob=0.814])[&prob=0.809])[&prob=0.994])[&prob=0.889])[&prob=0.92])[&prob=0.891];
 END;

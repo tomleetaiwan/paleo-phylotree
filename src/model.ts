@@ -92,6 +92,7 @@ export interface ViewState {
   names: boolean;
   treeName: boolean;
   ageRange: boolean;
+  compact: boolean;
   ages: boolean;
   allTips: boolean;
   support: boolean;

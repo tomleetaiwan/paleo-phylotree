@@ -43,6 +43,26 @@ export interface Diagram {
   scaleMaximum: number;
 }
 
+export function drawScaleBar(diagram: Pick<Diagram, "older" | "younger" | "plotWidth" | "scaleMaximum" | "axisTitle">, x: number, y: number, availableWidth: number): SVGGElement {
+  const time = diagram.axisTitle === TIME_AXIS_TITLE;
+  const span = time ? diagram.older - diagram.younger : diagram.scaleMaximum;
+  const target = span * Math.min(0.25, Math.max(0, availableWidth) / diagram.plotWidth);
+  const magnitude = 10 ** Math.floor(Math.log10(target));
+  const normalized = target / magnitude;
+  const value = target > 0 ? (magnitude > 0
+    ? (normalized >= 5 ? 5 : normalized >= 2 ? 2 : 1) * magnitude : target) : 0;
+  const length = span > 0 ? value / span * diagram.plotWidth : 0;
+  const group = svgElement("g", { "data-layer": "scale-bar", "data-scale-value": value, "data-scale-span": span });
+  const label = time ? `${value} Ma` : `${diagram.axisTitle}: ${value}`;
+  group.append(svgElement("text", { x, y: y - 12, fill: "#526966", "font-size": 12, "font-family": "sans-serif" },
+    span === 0 ? `${label} (zero span)` : label));
+  if (length > 0) {
+    group.append(svgElement("line", { x1: x, x2: x + length, y1: y, y2: y, stroke: "#526966", "stroke-width": 1.5 }));
+    for (const end of [x, x + length]) group.append(svgElement("line", { x1: end, x2: end, y1: y - 4, y2: y + 4, stroke: "#526966" }));
+  }
+  return group;
+}
+
 export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width: number, select: (id: string) => void): Diagram {
   const byId = new Map(tree.nodes.map(n => [n.id, n]));
   const order = new Map(tree.nodes.map((n, i) => [n.id, i]));
@@ -68,6 +88,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     });
   }
   const time = isTimeMode(view.mode) && result.valid;
+  const compact = view.compact && view.mode !== "cladogram";
   const simplified = time && view.simplified;
   const collapsed = new Set(view.collapsed);
   const rootAge = result.ages[tree.rootId] ?? 0;
@@ -289,8 +310,8 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   const background = view.backgroundTransparent ? "none" : view.backgroundColor;
   svg.append(svgElement("rect", { width, height, fill: background }));
   svg.append(svgElement("title", {}, `${tree.name} — ${VIEW_MODE_LABELS[view.mode]} — ${axisTitle}`));
-  if (view.treeName) svg.append(svgElement("text", { x: plotLeft, y: 24, fill: "#203f3c", "font-size": 14, "font-family": "sans-serif", "data-label-kind": "tree-name" }, tree.name));
-  svg.append(svgElement("text", {
+  if (view.treeName) svg.append(svgElement("text", { x: compact ? plotLeft : 16, y: 24, fill: "#203f3c", "font-size": 14, "font-family": "sans-serif", "data-label-kind": "tree-name" }, tree.name));
+  if (!compact) svg.append(svgElement("text", {
     x: 16, y: 68, fill: "#526966", "font-size": 12, "font-family": "sans-serif",
     "data-axis-title": time ? "time" : "scale"
   }, axisTitle));
@@ -299,7 +320,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
   clip.append(svgElement("rect", { x: plotLeft - 7, y: 76, width: plotWidth + 14, height: height - 125 }));
   defs.append(clip); svg.append(defs);
   const grid = svgElement("g", { "data-layer": "grid" });
-  if (time) {
+  if (time && !compact) {
     const drawGrid = (tick: number, minor: boolean) => {
       const x = ageX(tick, older, younger, plotLeft, plotWidth);
       if (view.grid) grid.append(svgElement("line", { x1: x, x2: x, y1: 76, y2: height - 50, stroke: view.gridColor, "stroke-opacity": view.gridOpacity * (minor ? 0.45 : 1), "stroke-width": 1, "data-age": tick }));
@@ -315,7 +336,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     for (const tick of ticks) drawGrid(tick, false);
     grid.append(svgElement("line", { x1: plotLeft, x2: plotLeft + plotWidth, y1: 76, y2: 76, stroke: "#7f9691" }));
     svg.append(grid);
-  } else if (rawScale) {
+  } else if (rawScale && !compact) {
     const magnitude = 10 ** Math.floor(Math.log10(maxDistance)) || maxDistance;
     ticks = maxDistance === 0 ? [0] : [...new Set(makeTicks(maxDistance / magnitude, 0, null).reverse().map(tick => tick * magnitude))];
     measurement.font = "11px sans-serif";
@@ -331,6 +352,7 @@ export function drawTree(tree: Tree, result: TimeResult, view: ViewState, width:
     grid.append(svgElement("line", { x1: plotLeft, x2: plotLeft + plotWidth, y1: 76, y2: 76, stroke: "#7f9691" }));
     svg.append(grid);
   }
+  if (compact) svg.append(drawScaleBar({ older, younger, plotWidth, scaleMaximum: maxDistance, axisTitle }, plotLeft, 68, plotWidth));
   const root = points.get(tree.rootId)!;
   if (view.rootStem && (!time || (rootAge <= older && rootAge >= younger))) {
     const stem = svgElement("g", { "data-layer": "root-stem" });

@@ -323,11 +323,13 @@ test("project round trip validates versions, settings and stable IDs", () => {
   assert.deepEqual(loaded.view, view);
   const hiddenLabels = { ...view, treeName: false, ageRange: false };
   assert.deepEqual(loadProject(saveProject(doc, 0, options, hiddenLabels)).view, hiddenLabels);
+  assert.equal(loadProject(saveProject(doc, 0, options, { ...view, compact: true })).view.compact, true);
   const legacyLabels = JSON.parse(saved);
   delete legacyLabels.view.treeName;
   delete legacyLabels.view.ageRange;
+  delete legacyLabels.view.compact;
   assert.deepEqual(loadProject(JSON.stringify(legacyLabels)).view, view);
-  for (const key of ["treeName", "ageRange"]) {
+  for (const key of ["treeName", "ageRange", "compact"]) {
     for (const value of ["false", null, 0]) {
       const invalid = JSON.parse(saved);
       invalid.view[key] = value;
@@ -431,6 +433,11 @@ test("four synthetic examples share exactly 15 OTU names and a strictly binary t
     const tree = parseDocument(readFileSync(new URL(`../examples/${filename}.nex`, import.meta.url), "utf8")).trees[0];
     assert.deepEqual(tree.nodes.filter(n => !n.children.length).map(n => n.name), expectedNames, filename);
     assert.equal(tree.nodes.length, 29, filename);
+    for (const node of tree.nodes) {
+      assert.equal(typeof node.annotations.prob, "number", `${filename}: ${node.id}`);
+      assert.ok(node.support >= 0.71 && node.support <= 1, `${filename}: ${node.id}`);
+      assert.equal(node.support, node.annotations.prob);
+    }
     for (const node of tree.nodes.filter(n => n.children.length)) assert.equal(node.children.length, 2, `${filename}: ${node.id}`);
     const structure = tree.nodes.map(n => ({ name: n.name, parentId: n.parentId, children: n.children }));
     topology ??= structure;
